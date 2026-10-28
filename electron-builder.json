@@ -1,0 +1,49 @@
+{
+  "appId": "com.hq.networkdebugger",
+  "productName": "HQ Network Debugger",
+  "directories": {
+    "output": "dist/方案B-Electron"
+  },
+  "files": [
+    "src/**/*",
+    "public/**/*",
+    "electron-main.js",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "electron-main.js"
+  },
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "icon": "src-tauri/icons/icon.icns",
+    "identity": null,
+    "target": [
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      },
+      {
+        "target": "dir",
+        "arch": [
+          "arm64"
+        ]
+      }
+    ]
+  },
+  "dmg": {
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  }
+}

@@ -1,0 +1,75 @@
+# ==========================================
+# 操作系统与临时缓存 (OS & System Caches)
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ==========================================
+# Node.js 依赖与日志 (Node.js & NPM)
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 编辑器与 IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ==========================================
+# 打包与构建产物 (Build Artifacts & Dist)
+# ==========================================
+dist/
+out/
+build/
+*.dmg
+*.app/
+*.blockmap
+
+# ==========================================
+# Tauri & Rust 构建目录 (Tauri / Cargo)
+# ==========================================
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/backend/
+
+# 边车 Node 原生二进制缓存（由本地 tauri:prep 自动拷贝生成）
+src-tauri/bin/node
+
+# ==========================================
+# 运行时抓包自签名证书与本地缓存 (Runtime & Local Data)
+# ==========================================
+# 运行时生成的根证书私钥与证书文件（防止敏感私钥入库）
+certs/ca.key
+certs/ca.crt
+certs/ca.pem
+
+# 本地调试与临时运行缓存
+data/rules.json
+*.log
+
+# 静态资源冗余缓存（保留根目录 apks/ 即可，忽略 public/apks/ 冗余拷贝）
+public/apks/
