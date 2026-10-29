@@ -121,6 +121,21 @@ class ProxyServer extends EventEmitter {
 
       this.emit('response-received', tx);
     });
+
+    // 监听请求中断/挂起事件 (客户端取消请求或对端服务器断开 socket hang up)
+    this.server.on('abort', async (req) => {
+      if (!this.isRecording) return;
+
+      const tx = this._getOrCreateTransaction(req.id);
+      tx.statusCode = tx.statusCode || 502;
+      tx.statusMessage = req.error?.message || 'Socket Hang Up / Aborted';
+      tx.responseTime = Date.now();
+      tx.duration = tx.requestTime ? (tx.responseTime - tx.requestTime) : 0;
+      tx.completed = true;
+      tx.responseBody = tx.responseBody || `[请求异常中断: ${req.error?.message || 'socket hang up (对端服务器或客户端断开连接)'}]`;
+
+      this.emit('response-received', tx);
+    });
   }
 
   async applyRules() {
@@ -185,8 +200,10 @@ class ProxyServer extends EventEmitter {
         await this._registerSingleRule(rule);
       }
 
-      // 默认兜底策略：使用 forUnmatchedRequest() 设置 FALLBACK 优先级透传，确保所有 Mock 规则持久稳定生效
-      await this.server.forUnmatchedRequest().thenPassThrough();
+      // 默认兜底策略：使用 forUnmatchedRequest() 设置 FALLBACK 优先级透传，并忽略上游自签名证书错误，确保所有请求和 Mock 稳定工作
+      await this.server.forUnmatchedRequest().thenPassThrough({
+        ignoreHostHttpsErrors: true
+      });
       console.log(`[ProxyServer] 已生效 ${activeRules.length} 条 Mock 规则，其余请求正常透传`);
     } catch (err) {
       console.error('[ProxyServer] 应用规则时出错:', err);

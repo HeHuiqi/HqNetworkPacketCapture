@@ -1,3 +1,54 @@
+// 智能过滤底层非致命网络断开日志（如手机滑动取消请求 aborted、后台私有长连接 ERR_SSL_WRONG_VERSION_NUMBER 等），保持控制台干净整洁
+// 调试时可通过设置 DEBUG=1 环境变量开启完整输出
+if (!process.env.DEBUG) {
+  const IGNORED_PATTERNS = [
+    'Failed to handle request: aborted',
+    'Failed to handle request: socket hang up',
+    "Can't calculate TLS fingerprint",
+    'Unknown TLS error',
+    'ERR_SSL_WRONG_VERSION_NUMBER',
+    'wrong version number',
+    'tls_validate_record_header'
+  ];
+
+  const shouldIgnore = (args) => {
+    try {
+      const fullText = args
+        .map((arg) => {
+          if (typeof arg === 'string') return arg;
+          if (arg instanceof Error) return `${arg.name}: ${arg.message} ${arg.stack || ''} ${arg.code || ''}`;
+          if (arg && typeof arg === 'object') {
+            try { return JSON.stringify(arg); } catch { return String(arg); }
+          }
+          return String(arg);
+        })
+        .join(' ');
+
+      return IGNORED_PATTERNS.some((pattern) => fullText.includes(pattern));
+    } catch {
+      return false;
+    }
+  };
+
+  const origError = console.error;
+  console.error = (...args) => {
+    if (shouldIgnore(args)) return;
+    origError.apply(console, args);
+  };
+
+  const origWarn = console.warn;
+  console.warn = (...args) => {
+    if (shouldIgnore(args)) return;
+    origWarn.apply(console, args);
+  };
+
+  const origLog = console.log;
+  console.log = (...args) => {
+    if (shouldIgnore(args)) return;
+    origLog.apply(console, args);
+  };
+}
+
 const proxyServer = require('./src/proxy-server');
 const webServer = require('./src/web-server');
 const systemProxyManager = require('./src/system-proxy-manager');
