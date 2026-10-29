@@ -138,7 +138,7 @@ class ProxyServer extends EventEmitter {
       await this.server.forGet().matching((req) => {
         const cleanPath = (req.path || '').split('?')[0];
         return cleanPath === '/ca.pem' || cleanPath === '/ca.cer';
-      }).thenCallback(() => {
+      }).always().thenCallback(() => {
         const certContent = fs.readFileSync(CA_CERT_PATH);
         return {
           statusCode: 200,
@@ -153,7 +153,7 @@ class ProxyServer extends EventEmitter {
       await this.server.forGet().matching((req) => {
         const cleanPath = (req.path || '').split('?')[0];
         return cleanPath === '/ca.crt';
-      }).thenCallback(() => {
+      }).always().thenCallback(() => {
         const crtContent = fs.readFileSync(CA_CRT_PATH);
         return {
           statusCode: 200,
@@ -168,7 +168,7 @@ class ProxyServer extends EventEmitter {
       await this.server.forGet().matching((req) => {
         const cleanPath = (req.path || '').split('?')[0];
         return cleanPath === '/ca.0' || /^\/[0-9a-f]{8}\.0$/i.test(cleanPath);
-      }).thenCallback(() => {
+      }).always().thenCallback(() => {
         const filename = getAndroidSystemCertFilename();
         const certContent = fs.readFileSync(CA_CERT_PATH);
         return {
@@ -185,8 +185,8 @@ class ProxyServer extends EventEmitter {
         await this._registerSingleRule(rule);
       }
 
-      // 默认兜底策略：全部透传 (PassThrough)
-      await this.server.forAnyRequest().thenPassThrough();
+      // 默认兜底策略：使用 forUnmatchedRequest() 设置 FALLBACK 优先级透传，确保所有 Mock 规则持久稳定生效
+      await this.server.forUnmatchedRequest().thenPassThrough();
       console.log(`[ProxyServer] 已生效 ${activeRules.length} 条 Mock 规则，其余请求正常透传`);
     } catch (err) {
       console.error('[ProxyServer] 应用规则时出错:', err);
@@ -240,6 +240,7 @@ class ProxyServer extends EventEmitter {
       // 支持带任意长 Query 参数的完整 URL 或 Path 匹配，自动兼容末尾斜杠与协议头差异
       const cleanPattern = pattern.replace(/\/+$/, '');
       const patternNoProtocol = cleanPattern.replace(/^https?:\/\//, '');
+      const patternHasQuery = cleanPattern.includes('?');
 
       matchPredicate = (req) => {
         const reqUrlClean = (req.url || '').replace(/\/+$/, '');
@@ -249,6 +250,14 @@ class ProxyServer extends EventEmitter {
         // 兼容忽略 http/https 协议头差异
         const reqNoProtocol = reqUrlClean.replace(/^https?:\/\//, '');
         if (reqNoProtocol === patternNoProtocol) return true;
+
+        // 如果用户配置的 pattern 没有写 Query 参数，但客户端请求带了 Query 参数（如随机时间戳、签名），同样精准匹配其 Base URL
+        if (!patternHasQuery) {
+          const reqUrlBase = reqUrlClean.split('?')[0];
+          if (reqUrlBase === cleanPattern) return true;
+          if (reqUrlBase.replace(/^https?:\/\//, '') === patternNoProtocol) return true;
+          if (req.path && req.path.split('?')[0].replace(/\/+$/, '') === cleanPattern) return true;
+        }
 
         return false;
       };
@@ -272,7 +281,8 @@ class ProxyServer extends EventEmitter {
       }
     }
 
-    builder = builder.matching(matchPredicate);
+    // 显式声明 .always()，确保该规则持久拦截所有后续请求（Mockttp 默认对自定义规则是 once/单次拦截模式）
+    builder = builder.matching(matchPredicate).always();
 
     if (rule.response.delay && rule.response.delay > 0) {
       builder = builder.delay(rule.response.delay);
