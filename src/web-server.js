@@ -198,6 +198,44 @@ class WebServer {
       res.json(proxyServer.getTransactions(limit));
     });
 
+    // 响应体原始数据/多媒体流接口（图片显示、视频播放、音频播放、原文件下载）
+    this.app.get('/api/requests/:id/body', (req, res) => {
+      const tx = proxyServer.getTransaction(req.params.id);
+      if (!tx) {
+        return res.status(404).send('Not Found');
+      }
+
+      const contentType = tx.responseHeaders?.['content-type'] || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Disposition', 'inline');
+
+      const buffer = proxyServer.getBodyBuffer(tx.id);
+      if (buffer) {
+        // 支持 HTML 5 视频/音频拖动播放 (HTTP 206 Partial Content)
+        if (req.headers.range) {
+          const parts = req.headers.range.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : buffer.length - 1;
+          const chunksize = (end - start) + 1;
+          res.status(206);
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${buffer.length}`);
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Length', chunksize);
+          return res.end(buffer.slice(start, end + 1));
+        }
+
+        res.setHeader('Content-Length', buffer.length);
+        return res.end(buffer);
+      } else if (tx.responseBody) {
+        const textBuf = Buffer.from(tx.responseBody, 'utf8');
+        res.setHeader('Content-Length', textBuf.length);
+        return res.end(textBuf);
+      } else {
+        return res.status(204).end();
+      }
+    });
+
     this.app.delete('/api/requests', (req, res) => {
       proxyServer.clearHistory();
       res.json({ success: true });

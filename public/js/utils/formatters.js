@@ -75,3 +75,26 @@ export function generateCurl(tx) {
   }
   return cmd;
 }
+
+export function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes)) return '-';
+  const num = Number(bytes);
+  if (num === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(num) / Math.log(k));
+  return parseFloat((num / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+export function getFilenameFromUrl(urlStr, defaultExt = 'bin') {
+  if (!urlStr) return `download.${defaultExt}`;
+  try {
+    const u = new URL(urlStr);
+    const pathname = u.pathname;
+    const base = pathname.split('/').filter(Boolean).pop();
+    if (base && base.includes('.')) return base;
+    return `download.${defaultExt}`;
+  } catch (e) {
+    return `download.${defaultExt}`;
+  }
+}

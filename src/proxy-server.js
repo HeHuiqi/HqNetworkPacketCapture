@@ -12,7 +12,22 @@ class ProxyServer extends EventEmitter {
     this.transactions = new Map(); // id -> transaction
     this.history = [];             // array of transaction ids
     this.maxHistory = 1000;
+    this.bodyBuffers = new Map();  // id -> Buffer (LRU memory cache for images/videos/etc.)
+    this.maxBufferCount = 200;
     this.isRecording = true;
+  }
+
+  setBodyBuffer(id, buffer) {
+    if (!buffer) return;
+    this.bodyBuffers.set(id, buffer);
+    if (this.bodyBuffers.size > this.maxBufferCount) {
+      const oldestKey = this.bodyBuffers.keys().next().value;
+      this.bodyBuffers.delete(oldestKey);
+    }
+  }
+
+  getBodyBuffer(id) {
+    return this.bodyBuffers.get(id) || null;
   }
 
   async start(port = 8888) {
@@ -112,9 +127,53 @@ class ProxyServer extends EventEmitter {
         tx.mockRuleId = res.headers['x-mock-rule-id'] || null;
       }
 
+      const contentType = (res.headers['content-type'] || '').toLowerCase();
+      const isImage = contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif)(\?|$)/i.test(tx.url);
+      const isVideo = contentType.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv|avi)(\?|$)/i.test(tx.url);
+      const isAudio = contentType.startsWith('audio/') || /\.(mp3|wav|ogg|aac|m4a)(\?|$)/i.test(tx.url);
+      const isHtml = contentType.includes('text/html');
+      const isJson = contentType.includes('json');
+
       try {
-        const bodyText = await res.body.getText();
-        tx.responseBody = bodyText || '';
+        const buffer = await res.body.getDecodedBuffer();
+        if (buffer && buffer.length > 0) {
+          // 缓存 50MB 以内的二进制 Buffer，供网页端图片渲染、视频播放或原文件下载
+          if (buffer.length <= 50 * 1024 * 1024) {
+            this.setBodyBuffer(tx.id, buffer);
+          }
+
+          if (isImage) {
+            tx.isImage = true;
+            tx.bodyType = 'image';
+            // 小于 512KB 直接生成 Base64 DataURL，零延迟秒渲染
+            if (buffer.length <= 512 * 1024) {
+              const mime = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/png';
+              tx.imageDataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+            }
+            tx.responseBody = `[图片内容: ${contentType || 'image'}, 大小: ${buffer.length} 字节]`;
+          } else if (isVideo) {
+            tx.isVideo = true;
+            tx.bodyType = 'video';
+            tx.responseBody = `[视频媒体: ${contentType || 'video'}, 大小: ${buffer.length} 字节]`;
+          } else if (isAudio) {
+            tx.isAudio = true;
+            tx.bodyType = 'audio';
+            tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${buffer.length} 字节]`;
+          } else if (isHtml) {
+            tx.isHtml = true;
+            tx.bodyType = 'html';
+            tx.responseBody = buffer.toString('utf8');
+          } else if (isJson) {
+            tx.isJson = true;
+            tx.bodyType = 'json';
+            tx.responseBody = buffer.toString('utf8');
+          } else {
+            tx.responseBody = buffer.toString('utf8');
+            tx.bodyType = 'text';
+          }
+        } else {
+          tx.responseBody = '';
+        }
       } catch (err) {
         tx.responseBody = `[无法读取响应体: ${err.message}]`;
       }
@@ -323,6 +382,7 @@ class ProxyServer extends EventEmitter {
   clearHistory() {
     this.transactions.clear();
     this.history = [];
+    this.bodyBuffers.clear();
     this.emit('history-cleared');
   }
 

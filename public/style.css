@@ -1572,4 +1572,141 @@ input:checked + .slider:before { transform: translateX(16px); }
   color: #8250df;
 }
 
+/* ==========================================================================
+   多媒体与 HTML 预览面板 (Image / Video / Audio / HTML Preview)
+   ========================================================================== */
+
+.media-preview-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.media-toolbar {
+  height: 36px;
+  padding: 0 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.media-meta-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.media-tag {
+  padding: 2px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.media-tag.tag-type {
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.media-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.media-canvas {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+  position: relative;
+}
+
+/* 棋盘透明网格背景（适合 PNG/SVG/WebP 透明图） */
+.checkerboard-bg {
+  background-color: var(--bg-primary);
+  background-image: 
+    linear-gradient(45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.12) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.12) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+}
+
+.img-fit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  transition: transform 0.2s ease;
+}
+
+.img-original {
+  max-width: none;
+  max-height: none;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+}
+
+/* 视频播放器样式 */
+.video-canvas-dark {
+  background: #000000;
+  padding: 0;
+}
+
+.media-video-player {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  outline: none;
+}
+
+/* 音频播放器样式 */
+.audio-canvas-dark {
+  background: var(--bg-primary);
+  flex-direction: column;
+  gap: 16px;
+}
+
+.media-audio-player {
+  width: 80%;
+  max-width: 520px;
+  outline: none;
+}
+
+/* HTML 网页预览 iframe */
+.html-preview-layout {
+  background: #ffffff;
+}
+
+.html-iframe-wrapper {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+}
+
+.html-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+  display: block;
+}
+
 
