@@ -24,10 +24,22 @@ export default {
       return props.request.responseHeaders?.['content-length'] || null;
     });
 
+    const isHeic = computed(() => {
+      const ct = contentType.value;
+      const u = (props.request.url || '').toLowerCase();
+      return !!props.request.isHeic || 
+             ct.includes('image/heic') || 
+             ct.includes('image/heif') || 
+             /\.(heic|heif)(\?|$)/i.test(u);
+    });
+
     const isImage = computed(() => {
       const ct = contentType.value;
       const u = (props.request.url || '').toLowerCase();
-      return props.request.isImage || ct.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(u);
+      return props.request.isImage || 
+             isHeic.value || 
+             ct.startsWith('image/') || 
+             /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp|heic|heif)(\?|$)/i.test(u);
     });
 
     const isVideo = computed(() => {
@@ -75,6 +87,10 @@ export default {
     });
 
     const imageSrc = computed(() => {
+      if (isHeic.value) {
+        if (props.request.imageDataUrl) return props.request.imageDataUrl;
+        return `/api/requests/${props.request.id}/preview-image`;
+      }
       return props.request.imageDataUrl || mediaUrl.value;
     });
 
@@ -105,17 +121,38 @@ export default {
       }
     };
 
-    const downloadBody = () => {
+    const downloadBody = (forceFormat = null) => {
       let ext = 'bin';
-      if (isImage.value) ext = 'png';
-      else if (isVideo.value) ext = 'mp4';
-      else if (isAudio.value) ext = 'mp3';
-      else if (isHtml.value) ext = 'html';
-      else if (isJson.value) ext = 'json';
+      let url = mediaUrl.value;
 
-      const filename = getFilenameFromUrl(props.request.url, ext);
+      if (isHeic.value) {
+        if (forceFormat === 'jpeg') {
+          ext = 'jpg';
+          url = `/api/requests/${props.request.id}/preview-image`;
+        } else {
+          ext = 'heic';
+          url = mediaUrl.value;
+        }
+      } else if (isImage.value) {
+        ext = 'png';
+      } else if (isVideo.value) {
+        ext = 'mp4';
+      } else if (isAudio.value) {
+        ext = 'mp3';
+      } else if (isHtml.value) {
+        ext = 'html';
+      } else if (isJson.value) {
+        ext = 'json';
+      }
+
+      let filename = getFilenameFromUrl(props.request.url, ext);
+      if (isHeic.value && forceFormat === 'jpeg') {
+        filename = filename.replace(/\.(heic|heif)$/i, '') + '.jpg';
+        if (!filename.endsWith('.jpg')) filename += '.jpg';
+      }
+
       const a = document.createElement('a');
-      a.href = mediaUrl.value;
+      a.href = url;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
@@ -130,6 +167,7 @@ export default {
       activeSubTab,
       contentType,
       contentLength,
+      isHeic,
       isImage,
       isVideo,
       isAudio,
@@ -169,7 +207,7 @@ export default {
             :class="{ active: activeSubTab === 'image' }" 
             @click="activeSubTab = 'image'"
           >
-            🖼️ 图片 (Image)
+            <span>{{ isHeic ? '🖼️ HEIC 图像' : '🖼️ 图片 (Image)' }}</span>
           </button>
 
           <!-- 视频专属 Tab -->
@@ -249,7 +287,7 @@ export default {
           <button class="btn btn-purple btn-xs" @click="actions.openMockModal(request)">
             ⚡ Map Local (以此数据 Mock)
           </button>
-          <button class="btn btn-default btn-xs" @click="downloadBody" title="下载当前接口响应内容">
+          <button class="btn btn-default btn-xs" @click="downloadBody()" title="下载当前接口响应内容">
             💾 下载原响应
           </button>
           <button class="btn btn-default btn-xs" @click="actions.copy(request.responseBody || '', '响应内容已复制')">
@@ -264,7 +302,12 @@ export default {
         <div v-if="activeSubTab === 'image'" class="media-preview-container image-preview-layout">
           <div class="media-toolbar">
             <div class="media-meta-tags">
-              <span class="media-tag tag-type">{{ contentType || 'image' }}</span>
+              <span class="media-tag tag-type" :class="{ 'tag-heic': isHeic }">
+                {{ isHeic ? 'image/heic (HEIC 高清编码)' : (contentType || 'image') }}
+              </span>
+              <span v-if="isHeic" class="media-tag tag-heic-badge" title="已通过硬件加速解码为高清预览">
+                ⚡ 硬件转码预览
+              </span>
               <span v-if="imgNaturalWidth > 0" class="media-tag">尺寸: {{ imgNaturalWidth }} × {{ imgNaturalHeight }} px</span>
               <span v-if="contentLength" class="media-tag">大小: {{ formatBytes(contentLength) }}</span>
             </div>
@@ -272,7 +315,8 @@ export default {
               <button class="btn btn-xs btn-default" :class="{ active: imgFitMode === 'fit' }" @click="imgFitMode = 'fit'">适应窗口</button>
               <button class="btn btn-xs btn-default" :class="{ active: imgFitMode === 'original' }" @click="imgFitMode = 'original'">100% 原始大小</button>
               <button class="btn btn-xs btn-default" @click="openInNewTab">在新标签页打开 ↗</button>
-              <button class="btn btn-xs btn-default" @click="downloadBody">下载图片 ⬇</button>
+              <button v-if="isHeic" class="btn btn-xs btn-default" @click="downloadBody('jpeg')" title="下载已转换的 JPEG 格式图片">下载 JPG ⬇</button>
+              <button class="btn btn-xs btn-default" @click="downloadBody()" :title="isHeic ? '下载 HEIC 原始文件' : '下载原图'">{{ isHeic ? '下载 HEIC 原图 ⬇' : '下载图片 ⬇' }}</button>
             </div>
           </div>
           <div class="media-canvas checkerboard-bg">

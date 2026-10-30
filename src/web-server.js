@@ -205,7 +205,22 @@ class WebServer {
         return res.status(404).send('Not Found');
       }
 
-      const contentType = tx.responseHeaders?.['content-type'] || 'application/octet-stream';
+      // 如果客户端请求预览图 (如 HEIC 自动生成的 JPEG 预览)
+      if (req.query.preview === '1' || req.query.format === 'jpeg') {
+        const previewBuf = proxyServer.getPreviewBuffer(tx.id);
+        if (previewBuf) {
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Content-Disposition', 'inline');
+          res.setHeader('Content-Length', previewBuf.length);
+          return res.end(previewBuf);
+        }
+      }
+
+      let contentType = tx.responseHeaders?.['content-type'] || 'application/octet-stream';
+      if (tx.isHeic && !contentType.includes('heic') && !contentType.includes('heif')) {
+        contentType = 'image/heic';
+      }
       res.setHeader('Content-Type', contentType);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Disposition', 'inline');
@@ -234,6 +249,36 @@ class WebServer {
       } else {
         return res.status(204).end();
       }
+    });
+
+    // 专属预览图接口 (HEIC 优先返回转换后的 JPEG，兼容所有不支持 HEIC 的浏览器和环境)
+    this.app.get('/api/requests/:id/preview-image', (req, res) => {
+      const tx = proxyServer.getTransaction(req.params.id);
+      if (!tx) {
+        return res.status(404).send('Not Found');
+      }
+
+      const previewBuf = proxyServer.getPreviewBuffer(tx.id);
+      if (previewBuf) {
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Content-Length', previewBuf.length);
+        return res.end(previewBuf);
+      }
+
+      const origBuf = proxyServer.getBodyBuffer(tx.id);
+      if (origBuf) {
+        let contentType = tx.responseHeaders?.['content-type'] || 'image/png';
+        if (tx.isHeic) contentType = 'image/heic';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Content-Length', origBuf.length);
+        return res.end(origBuf);
+      }
+
+      res.status(404).send('No image data');
     });
 
     this.app.delete('/api/requests', (req, res) => {

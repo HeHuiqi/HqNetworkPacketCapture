@@ -1618,6 +1618,19 @@ input:checked + .slider:before { transform: translateX(16px); }
   font-weight: 600;
 }
 
+.media-tag.tag-heic {
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.4);
+  background: rgba(192, 132, 252, 0.1);
+}
+
+.media-tag.tag-heic-badge {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.08);
+  font-weight: 600;
+}
+
 .media-toolbar-actions {
   display: flex;
   align-items: center;

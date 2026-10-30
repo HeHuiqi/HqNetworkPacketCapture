@@ -3,6 +3,7 @@ const fs = require('fs');
 const { EventEmitter } = require('events');
 const { getOrCreateCA, getAndroidSystemCertFilename, CA_CERT_PATH, CA_CRT_PATH } = require('./cert-manager');
 const ruleManager = require('./rule-manager');
+const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 
 class ProxyServer extends EventEmitter {
   constructor() {
@@ -13,6 +14,7 @@ class ProxyServer extends EventEmitter {
     this.history = [];             // array of transaction ids
     this.maxHistory = 1000;
     this.bodyBuffers = new Map();  // id -> Buffer (LRU memory cache for images/videos/etc.)
+    this.previewBuffers = new Map(); // id -> Buffer (LRU cache for converted preview e.g. HEIC -> JPEG)
     this.maxBufferCount = 200;
     this.isRecording = true;
   }
@@ -28,6 +30,19 @@ class ProxyServer extends EventEmitter {
 
   getBodyBuffer(id) {
     return this.bodyBuffers.get(id) || null;
+  }
+
+  setPreviewBuffer(id, buffer) {
+    if (!buffer) return;
+    this.previewBuffers.set(id, buffer);
+    if (this.previewBuffers.size > this.maxBufferCount) {
+      const oldestKey = this.previewBuffers.keys().next().value;
+      this.previewBuffers.delete(oldestKey);
+    }
+  }
+
+  getPreviewBuffer(id) {
+    return this.previewBuffers.get(id) || null;
   }
 
   async start(port = 8888) {
@@ -128,9 +143,10 @@ class ProxyServer extends EventEmitter {
       }
 
       const contentType = (res.headers['content-type'] || '').toLowerCase();
-      const isImage = contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif)(\?|$)/i.test(tx.url);
-      const isVideo = contentType.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv|avi)(\?|$)/i.test(tx.url);
-      const isAudio = contentType.startsWith('audio/') || /\.(mp3|wav|ogg|aac|m4a)(\?|$)/i.test(tx.url);
+      const urlLower = (tx.url || '').toLowerCase();
+      const isUrlHeic = contentType.includes('image/heic') || contentType.includes('image/heif') || /\.(heic|heif)(\?|$)/i.test(urlLower);
+      const isVideo = contentType.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv|avi)(\?|$)/i.test(urlLower);
+      const isAudio = contentType.startsWith('audio/') || /\.(mp3|wav|ogg|aac|m4a)(\?|$)/i.test(urlLower);
       const isHtml = contentType.includes('text/html');
       const isJson = contentType.includes('json');
 
@@ -142,7 +158,29 @@ class ProxyServer extends EventEmitter {
             this.setBodyBuffer(tx.id, buffer);
           }
 
-          if (isImage) {
+          const isHeic = isUrlHeic || isBufferHeic(buffer);
+          const isImage = isHeic || contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(urlLower);
+
+          if (isHeic) {
+            tx.isHeic = true;
+            tx.isImage = true;
+            tx.bodyType = 'image';
+
+            try {
+              const jpegBuffer = await convertHeicToJpeg(buffer);
+              this.setPreviewBuffer(tx.id, jpegBuffer);
+              tx.hasHeicPreview = true;
+              // 小于 1MB 的 JPEG 预览直接 Base64 秒渲染
+              if (jpegBuffer.length <= 1024 * 1024) {
+                tx.imageDataUrl = `data:image/jpeg;base64,${jpegBuffer.toString('base64')}`;
+              }
+              tx.responseBody = `[HEIC 高清图像: 大小 ${buffer.length} 字节 (已自动转码生成 JPEG 预览)]`;
+            } catch (convErr) {
+              console.warn('[ProxyServer] HEIC 转换失败:', convErr.message);
+              tx.hasHeicPreview = false;
+              tx.responseBody = `[HEIC 图片: 大小 ${buffer.length} 字节]`;
+            }
+          } else if (isImage) {
             tx.isImage = true;
             tx.bodyType = 'image';
             // 小于 512KB 直接生成 Base64 DataURL，零延迟秒渲染
@@ -383,6 +421,7 @@ class ProxyServer extends EventEmitter {
     this.transactions.clear();
     this.history = [];
     this.bodyBuffers.clear();
+    this.previewBuffers.clear();
     this.emit('history-cleared');
   }
 
