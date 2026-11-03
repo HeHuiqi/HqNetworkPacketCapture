@@ -5,6 +5,48 @@ const { getOrCreateCA, getAndroidSystemCertFilename, CA_CERT_PATH, CA_CRT_PATH }
 const ruleManager = require('./rule-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 
+/**
+ * 提取并还原客户端请求的原始完整 URL
+ * 当 App 或网络层（如 HttpDNS、网关调度、VPN Fake-IP 或直连代理）将请求目标重写为 IP 或代理端口时，
+ * 借助 Host / :authority 请求头还原真实的原始域名和路径，确保抓包展示和 Mock 规则匹配完全保真。
+ */
+function getCanonicalUrl(req) {
+  const headers = req.headers || {};
+  const hostHeader = (headers['host'] || headers[':authority'] || '').trim();
+  let protocol = req.protocol || (req.url && req.url.startsWith('https://') ? 'https' : 'http');
+  if (headers[':scheme']) {
+    protocol = headers[':scheme'];
+  }
+
+  const rawUrl = req.url || '';
+  const rawPath = req.path || (rawUrl.startsWith('/') ? rawUrl : '');
+
+  // 若无 Host 头，则退回原始 URL
+  if (!hostHeader) {
+    return rawUrl || rawPath || '/';
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const hostInUrl = parsed.host;
+    // 判断 URL 中的 host 是否为 IP 地址或代理服务自身地址
+    const isHostIp = /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(hostInUrl) || /^\[.*\](:\d+)?$/.test(hostInUrl);
+    const isProxyHost = hostInUrl.includes('127.0.0.1') || hostInUrl.includes('localhost') || hostInUrl.includes(':8888');
+    const isHeaderDomain = !/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(hostHeader);
+
+    // 如果 URL 中是 IP/内部代理地址，而 Header 中是真实业务域名，还原为真实域名 URL
+    if ((isHostIp || isProxyHost) && isHeaderDomain) {
+      return `${protocol}://${hostHeader}${parsed.pathname}${parsed.search}`;
+    }
+
+    return rawUrl;
+  } catch (e) {
+    // rawUrl 为相对路径（例如 /api/v1?query=1）
+    const cleanPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+    return `${protocol}://${hostHeader}${cleanPath}`;
+  }
+}
+
 class ProxyServer extends EventEmitter {
   constructor() {
     super();
@@ -107,11 +149,19 @@ class ProxyServer extends EventEmitter {
       if (!this.isRecording) return;
 
       const tx = this._getOrCreateTransaction(req.id);
+      const canonicalUrl = getCanonicalUrl(req);
+
       tx.method = req.method;
-      tx.url = req.url;
-      tx.path = req.path;
+      tx.rawUrl = req.url;
+      tx.url = canonicalUrl;
+      try {
+        const u = new URL(canonicalUrl);
+        tx.path = (u.pathname || '/') + (u.search || '');
+      } catch (e) {
+        tx.path = req.path || req.url;
+      }
       tx.httpVersion = req.httpVersion;
-      tx.protocol = req.protocol || (req.url.startsWith('https://') ? 'https' : 'http');
+      tx.protocol = req.protocol || (canonicalUrl.startsWith('https://') ? 'https' : 'http');
       tx.clientIp = req.remoteIpAddress;
       tx.clientPort = req.remotePort;
       tx.requestHeaders = req.headers;
@@ -319,13 +369,19 @@ class ProxyServer extends EventEmitter {
     if (matchType === 'regex') {
       try {
         const regex = new RegExp(pattern);
-        matchPredicate = (req) => regex.test(req.url) || regex.test(req.path);
+        matchPredicate = (req) => {
+          const canonical = getCanonicalUrl(req);
+          return regex.test(canonical) || regex.test(req.url) || regex.test(req.path);
+        };
       } catch (e) {
         console.error(`[ProxyServer] 正则语法错误: ${pattern}`, e.message);
         return;
       }
     } else if (matchType === 'contains') {
-      matchPredicate = (req) => req.url.includes(pattern) || (req.path && req.path.includes(pattern));
+      matchPredicate = (req) => {
+        const canonical = getCanonicalUrl(req);
+        return canonical.includes(pattern) || req.url.includes(pattern) || (req.path && req.path.includes(pattern));
+      };
     } else if (matchType === 'path') {
       // 仅匹配路径（忽略域名与 Query 参数）
       let targetPath = pattern;
@@ -341,13 +397,20 @@ class ProxyServer extends EventEmitter {
       if (!targetPath.startsWith('/')) targetPath = '/' + targetPath;
 
       matchPredicate = (req) => {
+        const canonical = getCanonicalUrl(req);
+        try {
+          const reqPath = new URL(canonical).pathname;
+          if (reqPath === targetPath) return true;
+        } catch (e) {}
+
         try {
           const reqPath = new URL(req.url).pathname;
-          return reqPath === targetPath;
+          if (reqPath === targetPath) return true;
         } catch (e) {
           const reqPath = (req.path || '').split('?')[0];
           return reqPath === targetPath;
         }
+        return false;
       };
     } else {
       // 'exact' 全量精确匹配
@@ -357,21 +420,27 @@ class ProxyServer extends EventEmitter {
       const patternHasQuery = cleanPattern.includes('?');
 
       matchPredicate = (req) => {
-        const reqUrlClean = (req.url || '').replace(/\/+$/, '');
-        if (reqUrlClean === cleanPattern) return true;
-        if (req.path && req.path.replace(/\/+$/, '') === cleanPattern) return true;
+        const canonical = getCanonicalUrl(req);
+        const candidates = [canonical, req.url].filter(Boolean);
 
-        // 兼容忽略 http/https 协议头差异
-        const reqNoProtocol = reqUrlClean.replace(/^https?:\/\//, '');
-        if (reqNoProtocol === patternNoProtocol) return true;
+        for (const candidate of candidates) {
+          const clean = candidate.replace(/\/+$/, '');
+          if (clean === cleanPattern) return true;
 
-        // 如果用户配置的 pattern 没有写 Query 参数，但客户端请求带了 Query 参数（如随机时间戳、签名），同样精准匹配其 Base URL
-        if (!patternHasQuery) {
-          const reqUrlBase = reqUrlClean.split('?')[0];
-          if (reqUrlBase === cleanPattern) return true;
-          if (reqUrlBase.replace(/^https?:\/\//, '') === patternNoProtocol) return true;
-          if (req.path && req.path.split('?')[0].replace(/\/+$/, '') === cleanPattern) return true;
+          // 兼容忽略 http/https 协议头差异
+          const cleanNoProtocol = clean.replace(/^https?:\/\//, '');
+          if (cleanNoProtocol === patternNoProtocol) return true;
+
+          // 若配置的 pattern 没有 Query，但请求带了 Query 参数，匹配其 Base URL
+          if (!patternHasQuery) {
+            const cleanBase = clean.split('?')[0];
+            if (cleanBase === cleanPattern) return true;
+            if (cleanBase.replace(/^https?:\/\//, '') === patternNoProtocol) return true;
+          }
         }
+
+        if (req.path && req.path.replace(/\/+$/, '') === cleanPattern) return true;
+        if (!patternHasQuery && req.path && req.path.split('?')[0].replace(/\/+$/, '') === cleanPattern) return true;
 
         return false;
       };

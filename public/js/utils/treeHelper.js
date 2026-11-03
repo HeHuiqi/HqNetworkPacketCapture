@@ -10,7 +10,11 @@ export function buildDomainTree(requests, expandedMap = new Map(), searchQuery =
 
   for (const req of requests) {
     const { host, protocol, pathname, search } = parseUrl(req.url);
-    const domainKey = host || (req.requestHeaders?.host) || '未知域名';
+    const hostHeader = (req.requestHeaders?.host || req.requestHeaders?.[':authority'] || '').trim();
+    // 优先采用原始业务域名作为树状分组 Key，避免被内部解析后的 IP 拆分
+    const isHeaderDomain = hostHeader && !/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(hostHeader);
+    const isUrlDomain = host && !/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(host);
+    const domainKey = isHeaderDomain ? hostHeader : (isUrlDomain ? host : (hostHeader || host || '未知域名'));
 
     // 顶部域名过滤器：不匹配该域名的直接排除
     if (dFilter && !domainKey.toLowerCase().includes(dFilter)) {
