@@ -62,20 +62,20 @@ async function main() {
   console.log('=====================================================');
 
   try {
-    // 1. 启动代理内核 (支持 HTTP / HTTPS MITM / HTTP/2)
-    await proxyServer.start(PROXY_PORT);
+    // 1. 启动代理内核 (支持 HTTP / HTTPS MITM / HTTP/2，端口被占用时自动递增)
+    const actualProxyPort = await proxyServer.start(PROXY_PORT);
 
-    // 2. 启动 Web 控制台与管理服务
-    webServer.start(WEB_PORT);
+    // 2. 启动 Web 控制台与管理服务 (端口被占用时自动递增)
+    const actualWebPort = await webServer.start(WEB_PORT);
 
     const primaryIp = webServer.getLanIps()[0]?.ip || '127.0.0.1';
     console.log('-----------------------------------------------------');
     console.log(`[使用指南]`);
-    console.log(` 1. 在电脑浏览器打开抓包控制台: http://localhost:${WEB_PORT}`);
+    console.log(` 1. 在电脑浏览器打开抓包控制台: http://localhost:${actualWebPort}`);
     console.log(` 2. 手机连接同一局域网 Wi-Fi，配置 HTTP 代理:`);
     console.log(`    - 服务器 IP: ${primaryIp}`);
-    console.log(`    - 端口号:    ${PROXY_PORT}`);
-    console.log(` 3. 手机浏览器访问 http://${primaryIp}:${WEB_PORT}/ca.pem 下载并信任根证书`);
+    console.log(`    - 端口号:    ${actualProxyPort}`);
+    console.log(` 3. 手机浏览器访问 http://${primaryIp}:${actualWebPort}/ca.pem 下载并信任根证书`);
     console.log('=====================================================');
   } catch (err) {
     console.error('启动失败:', err);

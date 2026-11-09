@@ -33,20 +33,46 @@ class WebServer {
   }
 
   start(port = 8899) {
-    this.port = port;
-    this.app.use(express.json({ limit: '10mb' }));
-    this.app.use(express.static(path.resolve(__dirname, '../public')));
-    this.app.use('/apks', express.static(path.resolve(__dirname, '../apks')));
+    return new Promise((resolve, reject) => {
+      this.app.use(express.json({ limit: '10mb' }));
+      this.app.use(express.static(path.resolve(__dirname, '../public')));
+      this.app.use('/apks', express.static(path.resolve(__dirname, '../apks')));
 
-    this._setupRoutes();
+      this._setupRoutes();
 
-    this.server = http.createServer(this.app);
-    this._setupWebSocket();
+      let currentPort = port;
+      const maxPort = port + 50;
 
-    this.server.listen(this.port, '0.0.0.0', () => {
-      const primaryIp = this.getLanIps()[0]?.ip || '127.0.0.1';
-      console.log(`[WebServer] Web 控制台已启动: http://localhost:${this.port}`);
-      console.log(`[WebServer] 局域网访问地址: http://${primaryIp}:${this.port}`);
+      const tryListen = () => {
+        this.port = currentPort;
+        this.server = http.createServer(this.app);
+
+        this.server.once('error', (err) => {
+          if (err.code === 'EADDRINUSE' || (err.message && err.message.includes('EADDRINUSE'))) {
+            console.warn(`[WebServer] Web 控制台端口 ${currentPort} 已被占用，尝试切换至下一个端口 ${currentPort + 1}...`);
+            currentPort++;
+            if (currentPort > maxPort) {
+              return reject(new Error(`无法找到可用的 Web 控制台端口（已尝试 ${port} ~ ${maxPort}）: ${err.message}`));
+            }
+            tryListen();
+          } else {
+            reject(err);
+          }
+        });
+
+        this.server.listen(this.port, '0.0.0.0', () => {
+          this._setupWebSocket();
+          const primaryIp = this.getLanIps()[0]?.ip || '127.0.0.1';
+          if (currentPort !== port) {
+            console.warn(`[WebServer] 默认 Web 端口 ${port} 已被占用，已自动递增切换至空闲端口: ${this.port}`);
+          }
+          console.log(`[WebServer] Web 控制台已启动: http://localhost:${this.port}`);
+          console.log(`[WebServer] 局域网访问地址: http://${primaryIp}:${this.port}`);
+          resolve(this.port);
+        });
+      };
+
+      tryListen();
     });
   }
 

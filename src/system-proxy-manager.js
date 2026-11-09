@@ -120,7 +120,9 @@ class SystemProxyManager {
     if (enable) {
       console.log(`[SystemProxy] 正在开启 Windows 系统代理: 目标=${host}:${port}`);
       execSync(`reg add "${regKey}" /v ProxyEnable /t REG_DWORD /d 1 /f`);
-      execSync(`reg add "${regKey}" /v ProxyServer /t REG_SZ /d "${host}:${port}" /f`);
+      // Windows 规范格式：区分 http 与 https，并显式配置 ProxyOverride 避免 localhost 与内网回环死锁导致 500 报错
+      execSync(`reg add "${regKey}" /v ProxyServer /t REG_SZ /d "http=${host}:${port};https=${host}:${port}" /f`);
+      execSync(`reg add "${regKey}" /v ProxyOverride /t REG_SZ /d "<local>;localhost;127.*;10.*;192.168.*;172.16.*;" /f`);
     } else {
       console.log(`[SystemProxy] 正在关闭 Windows 系统代理`);
       execSync(`reg add "${regKey}" /v ProxyEnable /t REG_DWORD /d 0 /f`);

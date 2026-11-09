@@ -116,7 +116,7 @@ async function createWindow() {
     mainWindow = null;
   });
 
-  await mainWindow.loadURL(`http://127.0.0.1:${WEB_PORT}`);
+  await mainWindow.loadURL(`http://127.0.0.1:${webServer.port}`);
 }
 
 async function shutdown() {
@@ -135,11 +135,11 @@ async function shutdown() {
 app.whenReady().then(async () => {
   try {
     console.log('[Electron] 正在启动后端服务...');
-    // 1. 启动代理内核
-    await proxyServer.start(PROXY_PORT);
-    // 2. 启动 Web 控制台
-    webServer.start(WEB_PORT);
-    // 3. 创建主窗口
+    // 1. 启动代理内核（支持端口占用自动递增）
+    const actualProxyPort = await proxyServer.start(PROXY_PORT);
+    // 2. 启动 Web 控制台（支持端口占用自动递增）
+    const actualWebPort = await webServer.start(WEB_PORT);
+    // 3. 创建主窗口加载实际 Web 端口
     await createWindow();
   } catch (err) {
     console.error('[Electron] 启动失败:', err);

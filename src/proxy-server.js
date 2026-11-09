@@ -31,7 +31,7 @@ function getCanonicalUrl(req) {
     const hostInUrl = parsed.host;
     // 判断 URL 中的 host 是否为 IP 地址或代理服务自身地址
     const isHostIp = /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(hostInUrl) || /^\[.*\](:\d+)?$/.test(hostInUrl);
-    const isProxyHost = hostInUrl.includes('127.0.0.1') || hostInUrl.includes('localhost') || hostInUrl.includes(':8888');
+    const isProxyHost = hostInUrl.includes('127.0.0.1') || hostInUrl.includes('localhost') || /:(88\d{2}|89\d{2})/.test(hostInUrl);
     const isHeaderDomain = !/^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(hostHeader);
 
     // 如果 URL 中是 IP/内部代理地址，而 Header 中是真实业务域名，还原为真实域名 URL
@@ -98,8 +98,31 @@ class ProxyServer extends EventEmitter {
 
     await this.applyRules();
 
-    await this.server.start(this.port);
-    console.log(`[ProxyServer] 代理内核已启动，监听端口: ${this.port}`);
+    let currentPort = port;
+    const maxPort = port + 50;
+
+    while (currentPort <= maxPort) {
+      try {
+        await this.server.start(currentPort);
+        this.port = currentPort;
+        if (currentPort !== port) {
+          console.warn(`[ProxyServer] 默认代理端口 ${port} 已被占用，已自动递增切换至空闲端口: ${this.port}`);
+        } else {
+          console.log(`[ProxyServer] 代理内核已启动，监听端口: ${this.port}`);
+        }
+        break;
+      } catch (err) {
+        if (err.code === 'EADDRINUSE' || (err.message && err.message.includes('EADDRINUSE'))) {
+          console.warn(`[ProxyServer] 代理端口 ${currentPort} 已被占用，尝试探测下一个端口 ${currentPort + 1}...`);
+          currentPort++;
+          if (currentPort > maxPort) {
+            throw new Error(`无法找到可用的代理端口（已尝试 ${port} ~ ${maxPort}）: ${err.message}`);
+          }
+        } else {
+          throw err;
+        }
+      }
+    }
 
     // 监听规则变更，实时热重载生效
     ruleManager.on('rules-changed', async () => {
@@ -107,6 +130,8 @@ class ProxyServer extends EventEmitter {
       await this.applyRules();
       this.emit('rules-applied', ruleManager.getRules());
     });
+
+    return this.port;
   }
 
   _getOrCreateTransaction(id) {
