@@ -11,6 +11,7 @@
     "tauri:build": "tauri build && mkdir -p 'dist/方案A-Tauri' && rm -rf 'dist/方案A-Tauri/HQ Network Debugger.app' && cp -R 'src-tauri/target/release/bundle/macos/HQ Network Debugger.app' 'dist/方案A-Tauri/' && cp 'src-tauri/target/release/bundle/dmg/HQ Network Debugger_1.0.0_aarch64.dmg' 'dist/方案A-Tauri/'",
     "electron:dev": "electron electron-main.js",
     "electron:build": "electron-builder --mac --arm64 --config electron-builder.json && rm -rf 'dist/方案B-Electron/HQ Network Debugger.app' && mv 'dist/方案B-Electron/mac-arm64/HQ Network Debugger.app' 'dist/方案B-Electron/' && codesign --force --deep --sign - 'dist/方案B-Electron/HQ Network Debugger.app' && rm -rf 'dist/方案B-Electron/mac-arm64' 'dist/方案B-Electron/builder-effective-config.yaml' 'dist/方案B-Electron/builder-debug.yml' 'dist/方案B-Electron/'*.blockmap",
+    "electron:build:win": "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win --x64 --config electron-builder.json && rm -rf 'dist/方案B-Electron/'*.blockmap 'dist/方案B-Electron/builder-effective-config.yaml' 'dist/方案B-Electron/builder-debug.yml' 'dist/方案B-Electron/latest.yml'",
     "icon:gen": "tauri icon icons-design/icon-prism-3d.png && cp src-tauri/icons/128x128.png public/favicon.png",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
