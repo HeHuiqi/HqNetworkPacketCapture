@@ -132,6 +132,12 @@ class RuleManager extends EventEmitter {
     this._persist();
     return true;
   }
+
+  clearRules() {
+    this.rules = [];
+    this._persist();
+    return true;
+  }
 }
 
 module.exports = new RuleManager();

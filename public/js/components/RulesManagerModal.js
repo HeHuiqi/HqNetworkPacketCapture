@@ -115,6 +115,38 @@ export default {
       }
     };
 
+    const deleteAllRules = async () => {
+      if (!store.rules || store.rules.length === 0) {
+        actions.showToast('当前没有可删除的 Mock 规则', 'info');
+        return;
+      }
+
+      const count = store.rules.length;
+      const confirmed = await actions.confirm({
+        title: '删除全部规则确认',
+        message: `确定要一键删除所有 Mock 规则吗（共 ${count} 条）？`,
+        detail: '删除后所有 Mock 规则将被彻底清空并立即失效，对应网络请求将恢复真实网络透传。',
+        confirmText: `确认全部删除 (${count} 条)`,
+        cancelText: '取消',
+        type: 'danger'
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch('/api/rules', { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          store.rules = [];
+          actions.showToast(`已成功清空所有 Mock 规则 (共 ${count} 条)`, 'success');
+        } else {
+          actions.showToast('删除所有规则失败: ' + (data.error || '未知错误'), 'error');
+        }
+      } catch (err) {
+        actions.showToast('删除所有规则出错: ' + err.message, 'error');
+      }
+    };
+
     return {
       store,
       actions,
@@ -122,7 +154,8 @@ export default {
       addNewRule,
       editRule,
       copyRule,
-      deleteRule
+      deleteRule,
+      deleteAllRules
     };
   },
   template: `
@@ -133,6 +166,14 @@ export default {
             <span>🎯 Map Local 规则库管理 (共 {{ store.rules.length }} 条)</span>
           </div>
           <div class="modal-header-actions">
+            <button 
+              v-if="store.rules.length > 0"
+              class="btn btn-danger btn-sm rules-clear-btn" 
+              @click="deleteAllRules" 
+              title="一键清空删除所有 Mock 规则"
+            >
+              <span>🗑️ 一键删除所有</span>
+            </button>
             <button class="btn btn-primary btn-sm rules-add-btn" @click="addNewRule" title="手动添加新规则">
               <span class="rules-add-plus">＋</span>
               <span>新增规则</span>

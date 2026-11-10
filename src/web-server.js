@@ -368,6 +368,12 @@ class WebServer {
       res.json({ success: true, rule });
     });
 
+    this.app.delete('/api/rules', (req, res) => {
+      const count = ruleManager.getRules().length;
+      ruleManager.clearRules();
+      res.json({ success: true, count });
+    });
+
     this.app.delete('/api/rules/:id', (req, res) => {
       const success = ruleManager.deleteRule(req.params.id);
       res.json({ success });

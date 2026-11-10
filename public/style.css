@@ -1140,6 +1140,27 @@ input:checked + .slider:before { transform: translateX(16px); }
   border-radius: 6px;
 }
 
+.rules-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  transition: all var(--transition-fast);
+}
+
+.rules-clear-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+}
+
 .rules-add-plus {
   font-size: 14px;
   font-weight: 700;
