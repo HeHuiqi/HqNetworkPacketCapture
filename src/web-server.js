@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -7,6 +8,7 @@ const WebSocket = require('ws');
 const QRCode = require('qrcode');
 const { CA_CERT_PATH, CA_CRT_PATH, getAndroidSystemCertFilename } = require('./cert-manager');
 const ruleManager = require('./rule-manager');
+const settingsManager = require('./settings-manager');
 const proxyServer = require('./proxy-server');
 const systemProxyManager = require('./system-proxy-manager');
 
@@ -378,6 +380,74 @@ class WebServer {
       const success = ruleManager.deleteRule(req.params.id);
       res.json({ success });
     });
+
+    // 获取上游外部代理配置 (用于解决开启 VPN / 翻墙节点时请求失败)
+    this.app.get('/api/settings/upstream-proxy', (req, res) => {
+      res.json({
+        success: true,
+        config: settingsManager.getUpstreamProxy(),
+        proxyUrl: settingsManager.getUpstreamProxyUrl()
+      });
+    });
+
+    // 保存并即刻生效上游外部代理配置
+    this.app.post('/api/settings/upstream-proxy', async (req, res) => {
+      try {
+        const updated = await proxyServer.setUpstreamProxy(req.body);
+        if (this.broadcast) {
+          this.broadcast('upstream-proxy-updated', updated);
+        }
+        res.json({
+          success: true,
+          config: updated,
+          proxyUrl: settingsManager.getUpstreamProxyUrl()
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 测试上游代理端口连通性
+    this.app.post('/api/settings/upstream-proxy/test', (req, res) => {
+      const host = (req.body.host || '127.0.0.1').trim();
+      const port = parseInt(req.body.port, 10);
+      if (isNaN(port) || port <= 0 || port > 65535) {
+        return res.status(400).json({ success: false, error: '无效的代理端口号' });
+      }
+
+      const startTime = Date.now();
+      const socket = net.createConnection({ host, port, timeout: 1500 });
+
+      socket.once('connect', () => {
+        const latency = Date.now() - startTime;
+        socket.destroy();
+        res.json({
+          success: true,
+          latency,
+          message: `连接成功 (耗时 ${latency}ms)`
+        });
+      });
+
+      socket.once('timeout', () => {
+        socket.destroy();
+        res.json({
+          success: false,
+          error: `连接超时 (1500ms)，未检测到 ${host}:${port} 监听响应`
+        });
+      });
+
+      socket.once('error', (err) => {
+        socket.destroy();
+        let msg = err.message;
+        if (err.code === 'ECONNREFUSED') {
+          msg = `连接被拒绝: 目标端口 ${port} 未运行任何代理服务`;
+        }
+        res.json({
+          success: false,
+          error: msg
+        });
+      });
+    });
   }
 
   _setupWebSocket() {
@@ -394,7 +464,8 @@ class WebServer {
           proxyPort: proxyServer.port,
           webPort: this.port,
           lanIps: this.getLanIps(),
-          systemProxy: systemProxyManager.getStatus()
+          systemProxy: systemProxyManager.getStatus(),
+          upstreamProxy: settingsManager.getUpstreamProxy()
         }
       }));
     });

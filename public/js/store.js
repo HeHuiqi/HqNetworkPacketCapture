@@ -24,6 +24,15 @@ export const store = reactive({
     port: 8888
   },
 
+  // 上游外部代理 (解决开启 VPN / 翻墙节点时请求失败)
+  upstreamProxy: {
+    enabled: false,
+    type: 'http', // 'http' | 'socks5'
+    host: '127.0.0.1',
+    port: 7890,
+    noProxy: 'localhost, 127.0.0.1, 10.*, 192.168.*, 172.16.*'
+  },
+
   // 过滤
   searchQuery: '',
   domainFilter: '', // 左侧栏顶部独立域名过滤
@@ -47,7 +56,8 @@ export const store = reactive({
     mock: false,
     rules: false,
     mobile: false,
-    cert: false
+    cert: false,
+    upstream: false
   },
 
   // 通用确认弹窗组件状态
@@ -432,6 +442,54 @@ export const actions = {
     }
   },
 
+  // 获取上游外部代理配置
+  async fetchUpstreamProxy() {
+    try {
+      const res = await fetch('/api/settings/upstream-proxy');
+      const data = await res.json();
+      if (data.success && data.config) {
+        store.upstreamProxy = data.config;
+      }
+    } catch (e) {
+      console.error('获取上游代理配置失败:', e);
+    }
+  },
+
+  // 保存上游外部代理配置
+  async saveUpstreamProxy(config) {
+    try {
+      const res = await fetch('/api/settings/upstream-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+      const data = await res.json();
+      if (data.success) {
+        store.upstreamProxy = data.config;
+        actions.showToast(data.config.enabled ? '上游外部代理已启用并即刻生效' : '上游外部代理已关闭', 'success');
+        store.modals.upstream = false;
+      } else {
+        actions.showToast('保存上游代理失败: ' + (data.error || '未知错误'), 'error');
+      }
+    } catch (e) {
+      actions.showToast('保存上游代理出错: ' + e.message, 'error');
+    }
+  },
+
+  // 测试上游代理连通性
+  async testUpstreamProxy(host, port) {
+    try {
+      const res = await fetch('/api/settings/upstream-proxy/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, port })
+      });
+      return await res.json();
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
   // 初始化 WebSocket
   initWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -451,6 +509,7 @@ export const actions = {
           store.webPort = data.webPort;
           store.lanIps = data.lanIps || [];
           if (data.systemProxy) store.systemProxy = data.systemProxy;
+          if (data.upstreamProxy) store.upstreamProxy = data.upstreamProxy;
           if (store.requests.length > 0 && !store.selectedId) {
             store.selectedId = store.requests[0].id;
           }
@@ -474,6 +533,8 @@ export const actions = {
           store.rules = data;
         } else if (type === 'system-proxy-changed') {
           store.systemProxy = data;
+        } else if (type === 'upstream-proxy-updated') {
+          store.upstreamProxy = data;
         }
       } catch (err) {
         console.error('WS parse error:', err);

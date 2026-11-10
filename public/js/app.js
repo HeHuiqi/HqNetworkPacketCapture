@@ -11,6 +11,7 @@ import RulesManagerModal from './components/RulesManagerModal.js';
 import MobileModal from './components/MobileModal.js';
 import CertModal from './components/CertModal.js';
 import ConfirmModal from './components/ConfirmModal.js';
+import UpstreamProxyModal from './components/UpstreamProxyModal.js';
 
 const app = createApp({
   components: {
@@ -22,7 +23,8 @@ const app = createApp({
     RulesManagerModal,
     MobileModal,
     CertModal,
-    ConfirmModal
+    ConfirmModal,
+    UpstreamProxyModal
   },
   setup() {
     const onGlobalClick = () => {
@@ -74,6 +76,9 @@ const app = createApp({
 
       <!-- 电脑根证书安装向导弹窗 -->
       <cert-modal></cert-modal>
+
+      <!-- 上游外部代理设置弹窗 (VPN / 翻墙兼容) -->
+      <upstream-proxy-modal></upstream-proxy-modal>
 
       <!-- 全局通用确认/删除对话框 -->
       <confirm-modal></confirm-modal>

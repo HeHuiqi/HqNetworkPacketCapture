@@ -311,6 +311,39 @@ body {
   border-color: #4ac26b !important;
 }
 
+/* 上游外部代理专属按钮 */
+.upstream-proxy-btn {
+  transition: all 0.2s ease;
+}
+
+.upstream-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--text-dim);
+  display: inline-block;
+  transition: all 0.2s ease;
+}
+.upstream-indicator.active {
+  background-color: #60a5fa;
+  box-shadow: 0 0 6px rgba(96, 165, 250, 0.8);
+}
+
+.btn-upstream-active {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+.btn-upstream-active:hover {
+  background: rgba(59, 130, 246, 0.25) !important;
+}
+
+[data-theme="light"] .btn-upstream-active {
+  background: #ddf4ff !important;
+  color: #0969da !important;
+  border-color: #54aeff !important;
+}
+
 /* ==========================================================================
    两栏主布局 (Main Two Columns)
    ========================================================================== */
@@ -2744,4 +2777,93 @@ input:checked + .slider:before { transform: translateX(16px); }
 [data-theme="light"] .jte-fold-pill:hover {
   background: #8250df;
   color: #ffffff;
+}
+
+/* ==========================================================================
+   上游外部代理设置弹窗 (Upstream Proxy Modal)
+   ========================================================================== */
+.modal-card.modal-upstream {
+  max-width: 580px;
+}
+
+.upstream-tip-card {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+
+.tip-card-title {
+  font-weight: 700;
+  color: #60a5fa;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tip-card-desc {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+[data-theme="light"] .upstream-tip-card {
+  background: #f0f7ff;
+  border-color: #bfdbfe;
+}
+
+[data-theme="light"] .tip-card-title {
+  color: #0284c7;
+}
+
+.upstream-preset-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.highlight-code {
+  font-family: monospace;
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #60a5fa;
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+}
+
+[data-theme="light"] .highlight-code {
+  color: #0969da;
+}
+
+.test-feedback-success {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-size: 12px;
+}
+
+[data-theme="light"] .test-feedback-success {
+  background: #dafbe1;
+  border-color: #4ac26b;
+  color: #1a7f37;
+}
+
+.test-feedback-error {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-size: 12px;
+}
+
+[data-theme="light"] .test-feedback-error {
+  background: #ffebe9;
+  border-color: #ff8182;
+  color: #cf222e;
 }

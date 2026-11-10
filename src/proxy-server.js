@@ -3,6 +3,7 @@ const fs = require('fs');
 const { EventEmitter } = require('events');
 const { getOrCreateCA, getAndroidSystemCertFilename, CA_CERT_PATH, CA_CRT_PATH } = require('./cert-manager');
 const ruleManager = require('./rule-manager');
+const settingsManager = require('./settings-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 
 /**
@@ -372,11 +373,23 @@ class ProxyServer extends EventEmitter {
         await this._registerSingleRule(rule);
       }
 
-      // 默认兜底策略：使用 forUnmatchedRequest() 设置 FALLBACK 优先级透传，并忽略上游自签名证书错误，确保所有请求和 Mock 稳定工作
-      await this.server.forUnmatchedRequest().thenPassThrough({
+      // 透传配置：支持配置上游外部代理 (解决开启 VPN / 翻墙节点时直连失败或需要内网穿透的问题)
+      const passThroughOpts = {
         ignoreHostHttpsErrors: true
-      });
-      console.log(`[ProxyServer] 已生效 ${activeRules.length} 条 Mock 规则，其余请求正常透传`);
+      };
+
+      const upstreamProxyUrl = settingsManager.getUpstreamProxyUrl();
+      if (upstreamProxyUrl) {
+        passThroughOpts.proxyConfig = {
+          proxyUrl: upstreamProxyUrl,
+          noProxy: settingsManager.getNoProxyList()
+        };
+        console.log(`[ProxyServer] 已挂载上游外部代理: ${upstreamProxyUrl}`);
+      }
+
+      // 默认兜底策略：使用 forUnmatchedRequest() 设置 FALLBACK 优先级透传，并忽略上游自签名证书错误，确保所有请求和 Mock 稳定工作
+      await this.server.forUnmatchedRequest().thenPassThrough(passThroughOpts);
+      console.log(`[ProxyServer] 已生效 ${activeRules.length} 条 Mock 规则，其余请求正常透传${upstreamProxyUrl ? ' (走上游代理: ' + upstreamProxyUrl + ')' : ''}`);
     } catch (err) {
       console.error('[ProxyServer] 应用规则时出错:', err);
     }
@@ -523,6 +536,14 @@ class ProxyServer extends EventEmitter {
     this.isRecording = !!recording;
     this.emit('recording-toggled', this.isRecording);
     return this.isRecording;
+  }
+
+  async setUpstreamProxy(config) {
+    settingsManager.updateUpstreamProxy(config);
+    if (this.server) {
+      await this.applyRules();
+    }
+    return settingsManager.getUpstreamProxy();
   }
 
   async stop() {

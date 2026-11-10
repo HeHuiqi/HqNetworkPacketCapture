@@ -65,6 +65,17 @@ export default {
           <span>{{ store.systemProxy.enabled ? '🖥️ 系统代理: 已开启' : '🖥️ 系统代理: 已关闭' }}</span>
         </button>
 
+        <!-- 上游外部代理设置 (VPN / 翻墙节点兼容) -->
+        <button 
+          class="btn btn-sm upstream-proxy-btn" 
+          :class="store.upstreamProxy.enabled ? 'btn-upstream-active' : 'btn-default'"
+          @click="store.modals.upstream = true" 
+          :title="store.upstreamProxy.enabled ? '上游外部代理已启用 (' + store.upstreamProxy.type + '://' + store.upstreamProxy.host + ':' + store.upstreamProxy.port + ')，点击修改' : '配置上游外部代理 (解决开启 VPN / Clash / 翻墙节点时请求超时失败)'"
+        >
+          <span class="upstream-indicator" :class="{ active: store.upstreamProxy.enabled }"></span>
+          <span>{{ store.upstreamProxy.enabled ? '🚀 上游代理: 已开启' : '🚀 上游代理' }}</span>
+        </button>
+
         <!-- 电脑端根证书安装与信任菜单 -->
         <button 
           class="btn btn-default btn-sm" 
