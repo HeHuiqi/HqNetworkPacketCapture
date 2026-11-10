@@ -38,6 +38,51 @@ function highlightJson(jsonStr) {
   return res + (jsonStr.endsWith('\n') ? ' ' : '');
 }
 
+// 计算代码折叠区间 (扫描多行括号对)
+function computeFoldRanges(lines) {
+  const stack = [];
+  const foldRanges = {};
+  lines.forEach((lineText, idx) => {
+    for (let i = 0; i < lineText.length; i++) {
+      const char = lineText[i];
+      if (char === '"') {
+        i++;
+        while (i < lineText.length && lineText[i] !== '"') {
+          if (lineText[i] === '\\') i++;
+          i++;
+        }
+      } else if (char === '{' || char === '[') {
+        stack.push({ char, lineIndex: idx });
+      } else if (char === '}' || char === ']') {
+        const matchChar = char === '}' ? '{' : '[';
+        if (stack.length > 0 && stack[stack.length - 1].char === matchChar) {
+          const open = stack.pop();
+          if (open.lineIndex !== idx) {
+            foldRanges[open.lineIndex] = {
+              endLine: idx,
+              type: open.char === '{' ? 'object' : 'array'
+            };
+          }
+        }
+      }
+    }
+  });
+  return foldRanges;
+}
+
+// 提取折叠行的前缀内容与徽章文本
+function getFoldPrefixAndBadge(lineText, endLineText, type) {
+  const bracket = type === 'object' ? '{' : '[';
+  const bracketPos = lineText.lastIndexOf(bracket);
+  const prefix = bracketPos >= 0 ? lineText.slice(0, bracketPos) : lineText;
+  const hasComma = (endLineText || '').trim().endsWith(',');
+  const closeBracket = type === 'object' ? '}' : ']';
+  return {
+    prefix,
+    badgeLabel: `${bracket} ... ${closeBracket}${hasComma ? ',' : ''}`
+  };
+}
+
 export default {
   name: 'JsonTreeEditor',
   components: {
@@ -69,6 +114,12 @@ export default {
     const parsedData = ref(null);
     const parseError = ref(null);
     const expandSignal = ref(null);
+
+    // 左侧代码栏子模式: 'fold' (代码折叠) | 'raw' (源码编辑)
+    const codeViewSubMode = ref('fold');
+
+    // 存储左侧当前处于折叠状态的代码行号索引 (0-based)
+    const collapsedLineIndices = ref(new Set());
 
     // 双向同步锁
     const isUpdatingFromTree = ref(false);
@@ -108,16 +159,86 @@ export default {
       tryParse(newVal || '');
     }, { immediate: true });
 
-    // 计算总行数
-    const lineCount = computed(() => {
+    // 拆分所有文本行
+    const rawLines = computed(() => {
       const text = rawText.value || '';
-      return text ? text.split('\n').length : 1;
+      return text ? text.split('\n') : [''];
     });
 
-    // 计算高亮 HTML
+    // 计算总行数
+    const lineCount = computed(() => {
+      return rawLines.value.length;
+    });
+
+    // 计算高亮 HTML (用于源码编辑模式)
     const highlightedHtml = computed(() => {
       return highlightJson(rawText.value);
     });
+
+    // 计算所有可折叠的多行括号区间
+    const foldRanges = computed(() => {
+      return computeFoldRanges(rawLines.value);
+    });
+
+    // 计算左侧代码折叠视图中的可见行列表
+    const visibleLines = computed(() => {
+      const lines = rawLines.value;
+      const ranges = foldRanges.value;
+      const collapsed = collapsedLineIndices.value;
+      const result = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        // 判断当前行是否被外层某个已折叠的代码块隐藏
+        let isHidden = false;
+        for (const startIdx of collapsed) {
+          const range = ranges[startIdx];
+          if (range && i > startIdx && i <= range.endLine) {
+            isHidden = true;
+            break;
+          }
+        }
+
+        if (!isHidden) {
+          const isFolded = collapsed.has(i);
+          const canFold = !!ranges[i];
+          let prefixHtml = '';
+          let badgeInfo = null;
+
+          if (isFolded && ranges[i]) {
+            const endText = lines[ranges[i].endLine] || '';
+            const foldData = getFoldPrefixAndBadge(lines[i], endText, ranges[i].type);
+            prefixHtml = highlightJson(foldData.prefix);
+            badgeInfo = {
+              label: foldData.badgeLabel,
+              count: `${ranges[i].endLine - i} 行已折叠`
+            };
+          } else {
+            prefixHtml = highlightJson(lines[i]);
+          }
+
+          result.push({
+            lineIdx: i,
+            canFold,
+            isFolded,
+            prefixHtml,
+            badgeInfo
+          });
+        }
+      }
+
+      return result;
+    });
+
+    // 切换某一行代码的折叠/展开
+    const toggleLineFold = (lineIdx) => {
+      const newSet = new Set(collapsedLineIndices.value);
+      if (newSet.has(lineIdx)) {
+        newSet.delete(lineIdx);
+      } else {
+        newSet.add(lineIdx);
+      }
+      collapsedLineIndices.value = newSet;
+    };
 
     // 计算有效性概要信息
     const jsonMetaInfo = computed(() => {
@@ -273,16 +394,22 @@ export default {
       }
     };
 
-    // 展开全部
+    // 展开全部 (左侧代码折叠与右侧树形同时展开)
     const expandAll = () => {
+      collapsedLineIndices.value = new Set();
       expandSignal.value = true;
       nextTick(() => {
         expandSignal.value = null;
       });
     };
 
-    // 折叠全部
+    // 折叠全部 (左侧代码折叠与右侧树形同时折叠)
     const collapseAll = () => {
+      const newSet = new Set();
+      for (const k of Object.keys(foldRanges.value)) {
+        newSet.add(Number(k));
+      }
+      collapsedLineIndices.value = newSet;
       expandSignal.value = false;
       nextTick(() => {
         expandSignal.value = null;
@@ -333,6 +460,9 @@ export default {
       parsedData,
       parseError,
       expandSignal,
+      codeViewSubMode,
+      visibleLines,
+      toggleLineFold,
       textareaRef,
       highlightRef,
       lineNumbersRef,
@@ -355,7 +485,11 @@ export default {
     };
   },
   template: `
-    <div class="json-tree-editor-wrapper" :class="{ 'is-full-height': height === '100%' }" :style="{ height: height, minHeight: height === '100%' ? '0' : height }">
+    <div 
+      class="json-tree-editor-wrapper" 
+      :class="{ 'is-full-height': height === '100%' }" 
+      :style="{ height: height, minHeight: height === '100%' ? '0' : height }"
+    >
       <!-- 顶部操作工具栏 -->
       <div class="jte-toolbar">
         <!-- 左侧：视图模式切换 -->
@@ -404,16 +538,14 @@ export default {
             🗑️ 清空
           </button>
 
-          <!-- 树形展开折叠控制 (仅在树形可见时显示) -->
-          <template v-if="viewMode === 'split' || viewMode === 'tree'">
-            <span class="jte-divider"></span>
-            <button type="button" class="jte-tool-btn" @click="expandAll" title="展开树形全部节点">
-              🌿 展开全部
-            </button>
-            <button type="button" class="jte-tool-btn" @click="collapseAll" title="折叠全部节点">
-              🌱 收起全部
-            </button>
-          </template>
+          <!-- 树形与代码折叠控制 (左右同时受控) -->
+          <span class="jte-divider"></span>
+          <button type="button" class="jte-tool-btn" @click="expandAll" title="展开左侧代码和右侧树形的所有节点">
+            🌿 展开全部
+          </button>
+          <button type="button" class="jte-tool-btn" @click="collapseAll" title="折叠左侧代码和右侧树形的所有节点">
+            🌱 收起全部
+          </button>
         </div>
 
         <!-- 右侧：语法校验与状态指示器 -->
@@ -425,7 +557,7 @@ export default {
 
       <!-- 主编辑工作区 -->
       <div class="jte-workspace" :class="'mode-' + viewMode">
-        <!-- 1. 左侧代码编辑器 (带语法高亮与行号) -->
+        <!-- 1. 左侧代码编辑器 (支持 VS Code 风格代码折叠与自由源码编辑) -->
         <div 
           v-show="viewMode === 'split' || viewMode === 'code'" 
           class="jte-pane jte-code-pane"
@@ -433,8 +565,30 @@ export default {
           <div class="jte-pane-header">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span class="jte-pane-title">📝 JSON 源码 (Code View)</span>
-              <span class="jte-pane-hint">实时语法着色、Tab缩进</span>
+              
+              <!-- 折叠视图 vs 自由源码编辑 子模式切换 -->
+              <div class="jte-submode-tabs">
+                <button 
+                  type="button" 
+                  class="jte-submode-btn" 
+                  :class="{ active: codeViewSubMode === 'fold' }"
+                  @click="codeViewSubMode = 'fold'"
+                  title="代码折叠视图 (点击 ▶/▼ 展开折叠大对象)"
+                >
+                  🌲 代码折叠
+                </button>
+                <button 
+                  type="button" 
+                  class="jte-submode-btn" 
+                  :class="{ active: codeViewSubMode === 'raw' }"
+                  @click="codeViewSubMode = 'raw'"
+                  title="自由源码编辑 (支持随意打字、全选粘贴与编辑)"
+                >
+                  ✍️ 源码编辑
+                </button>
+              </div>
             </div>
+
             <button 
               type="button" 
               class="jte-tool-btn btn-xs" 
@@ -446,37 +600,85 @@ export default {
           </div>
 
           <div class="jte-code-canvas">
-            <!-- 行号列 -->
-            <div class="jte-line-numbers" ref="lineNumbersRef" aria-hidden="true">
-              <div v-for="n in lineCount" :key="n" class="jte-line-no">{{ n }}</div>
+            <!-- 模式 A: 结构化代码折叠视图 (带折叠箭头 ▶/▼ 与折叠胶囊) -->
+            <div 
+              v-if="codeViewSubMode === 'fold'" 
+              class="jte-fold-code-view"
+            >
+              <div 
+                v-for="line in visibleLines" 
+                :key="line.lineIdx"
+                class="jte-fold-line"
+                :class="{ 'is-folded-parent': line.isFolded }"
+              >
+                <!-- 行号与折叠箭头 -->
+                <div class="jte-fold-gutter">
+                  <span class="jte-fold-linenum">{{ line.lineIdx + 1 }}</span>
+                  <span 
+                    v-if="line.canFold"
+                    class="jte-fold-btn"
+                    :class="{ 'is-collapsed': line.isFolded }"
+                    @click.stop="toggleLineFold(line.lineIdx)"
+                    :title="line.isFolded ? '点击展开此代码块' : '点击折叠此代码块'"
+                  >
+                    {{ line.isFolded ? '▶' : '▼' }}
+                  </span>
+                  <span v-else class="jte-fold-btn-placeholder"></span>
+                </div>
+
+                <!-- 代码行内容与折叠徽章 (双击可快速切换到源码编辑) -->
+                <div 
+                  class="jte-fold-content" 
+                  @dblclick="codeViewSubMode = 'raw'" 
+                  title="双击进入自由源码编辑模式"
+                >
+                  <span class="jte-fold-prefix" v-html="line.prefixHtml"></span>
+                  <span 
+                    v-if="line.isFolded" 
+                    class="jte-fold-pill" 
+                    @click.stop="toggleLineFold(line.lineIdx)"
+                    :title="line.badgeInfo.count + '，点击展开'"
+                  >
+                    {{ line.badgeInfo.label }}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <!-- 编辑与高亮舞台 -->
-            <div class="jte-stage">
-              <!-- 底层实时高亮渲染层 -->
-              <pre 
-                class="jte-highlight-layer" 
-                ref="highlightRef" 
-                v-html="highlightedHtml" 
-                aria-hidden="true"
-              ></pre>
+            <!-- 模式 B: 自由源码编辑模式 (底层高亮 + 顶层可编辑 textarea) -->
+            <template v-else>
+              <!-- 行号列 -->
+              <div class="jte-line-numbers" ref="lineNumbersRef" aria-hidden="true">
+                <div v-for="n in lineCount" :key="n" class="jte-line-no">{{ n }}</div>
+              </div>
 
-              <!-- 顶层真实交互输入文本域 -->
-              <textarea
-                ref="textareaRef"
-                class="jte-code-textarea"
-                :value="rawText"
-                :readonly="readonly"
-                placeholder="请输入或粘贴接口返回的 JSON 内容..."
-                @input="onTextInput"
-                @scroll="syncScroll"
-                @keydown="handleKeydown"
-                spellcheck="false"
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="off"
-              ></textarea>
-            </div>
+              <!-- 编辑与高亮舞台 -->
+              <div class="jte-stage">
+                <!-- 底层实时高亮渲染层 -->
+                <pre 
+                  class="jte-highlight-layer" 
+                  ref="highlightRef" 
+                  v-html="highlightedHtml" 
+                  aria-hidden="true"
+                ></pre>
+
+                <!-- 顶层真实交互输入文本域 -->
+                <textarea
+                  ref="textareaRef"
+                  class="jte-code-textarea"
+                  :value="rawText"
+                  :readonly="readonly"
+                  placeholder="请输入或粘贴接口返回的 JSON 内容..."
+                  @input="onTextInput"
+                  @scroll="syncScroll"
+                  @keydown="handleKeydown"
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                ></textarea>
+              </div>
+            </template>
           </div>
         </div>
 
