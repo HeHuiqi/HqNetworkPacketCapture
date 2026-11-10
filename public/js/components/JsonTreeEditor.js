@@ -1,42 +1,6 @@
 import { ref, computed, watch, nextTick } from '/vendor/vue.esm-browser.js';
+import { escapeHtml, highlightJson } from '../utils/formatters.js';
 import JsonTreeNode from './JsonTreeNode.js';
-
-// HTML 特殊字符转义
-function escapeHtml(text) {
-  return (text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-// 纯前端原生 JSON 语法着色分词器
-function highlightJson(jsonStr) {
-  if (!jsonStr) return '<span class="tok-empty"> </span>';
-  const safe = escapeHtml(jsonStr);
-  const tokenRegex = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|[{}\[\]:,])/g;
-
-  const res = safe.replace(tokenRegex, (match) => {
-    let cls = 'tok-number';
-    if (/^"/.test(match)) {
-      if (/:$/.test(match)) {
-        const keyPart = match.slice(0, match.lastIndexOf(':'));
-        const colonPart = match.slice(match.lastIndexOf(':'));
-        return `<span class="tok-key">${keyPart}</span><span class="tok-colon">${colonPart}</span>`;
-      } else {
-        cls = 'tok-string';
-      }
-    } else if (/true|false/.test(match)) {
-      cls = 'tok-boolean';
-    } else if (/null/.test(match)) {
-      cls = 'tok-null';
-    } else if (/[{}\[\]:,]/.test(match)) {
-      cls = 'tok-punct';
-    }
-    return `<span class="${cls}">${match}</span>`;
-  });
-
-  return res + (jsonStr.endsWith('\n') ? ' ' : '');
-}
 
 // 计算代码折叠区间 (扫描多行括号对)
 function computeFoldRanges(lines) {

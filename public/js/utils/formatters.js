@@ -15,6 +15,53 @@ export function formatJson(content) {
   }
 }
 
+/**
+ * HTML 特殊字符转义，防御 XSS
+ */
+export function escapeHtml(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * 纯前端原生 JSON 语法着色分词器
+ * 将 JSON 字符串解析为带 Token 样式的 HTML 片段（包括键名、字符串、数值、布尔值、空值、标点符号）
+ */
+export function highlightJson(jsonStr, emptyPlaceholder = '') {
+  if (!jsonStr) return emptyPlaceholder;
+  // 防御性保护：若 JSON 超过 2MB，避免海量 DOM 节点导致页面卡顿
+  if (jsonStr.length > 2 * 1024 * 1024) {
+    return escapeHtml(jsonStr);
+  }
+  const safe = escapeHtml(jsonStr);
+  const tokenRegex = /("(?:\\.|[^"\\])*"(?:\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|[{}\[\]:,])/g;
+
+  const res = safe.replace(tokenRegex, (match) => {
+    let cls = 'tok-number';
+    if (match.charCodeAt(0) === 34) {
+      if (match.endsWith(':')) {
+        const colonIdx = match.lastIndexOf(':');
+        const keyPart = match.slice(0, colonIdx);
+        const colonPart = match.slice(colonIdx);
+        return `<span class="tok-key">${keyPart}</span><span class="tok-colon">${colonPart}</span>`;
+      } else {
+        cls = 'tok-string';
+      }
+    } else if (match === 'true' || match === 'false') {
+      cls = 'tok-boolean';
+    } else if (match === 'null') {
+      cls = 'tok-null';
+    } else if (match === '{' || match === '}' || match === '[' || match === ']' || match === ',' || match === ':') {
+      cls = 'tok-punct';
+    }
+    return `<span class="${cls}">${match}</span>`;
+  });
+
+  return res + (jsonStr.endsWith('\n') ? ' ' : '');
+}
+
 export function parseUrl(urlStr) {
   if (!urlStr) return { protocol: '', host: '', pathname: '', search: '', params: {} };
   try {

@@ -4,6 +4,7 @@ if (!process.env.DEBUG) {
   const IGNORED_PATTERNS = [
     'Failed to handle request: aborted',
     'Failed to handle request: socket hang up',
+    'Client network socket disconnected before secure TLS connection was established',
     "Can't calculate TLS fingerprint",
     'Unknown TLS error',
     'ERR_SSL_WRONG_VERSION_NUMBER',

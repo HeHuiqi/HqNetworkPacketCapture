@@ -851,7 +851,8 @@ body {
 }
 
 .code-line-numbers {
-  width: 36px;
+  min-width: 38px;
+  width: auto;
   padding: 8px 6px;
   text-align: right;
   color: var(--text-dim);
@@ -872,6 +873,23 @@ body {
 .code-lines-content pre {
   margin: 0;
   font-family: inherit;
+  white-space: pre;
+}
+
+/* Key-Value 表格中内嵌的 JSON 高亮区域 (如 Query 参数) */
+.query-json-pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 4px 8px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* Key-Value 表格展示 (Headers, Query, Cookies) */

@@ -1,5 +1,5 @@
 import { ref, computed, watch } from '/vendor/vue.esm-browser.js';
-import { formatJson, parseCookies, formatBytes, getFilenameFromUrl } from '../utils/formatters.js';
+import { formatJson, parseCookies, formatBytes, getFilenameFromUrl, highlightJson, escapeHtml } from '../utils/formatters.js';
 import { actions } from '../store.js';
 
 export default {
@@ -76,6 +76,27 @@ export default {
       }
       return jsonInfo.value.formatted ? jsonInfo.value.formatted.split('\n') : ['(无响应体或请求处理中)'];
     });
+
+    const highlightedContent = computed(() => {
+      if (activeSubTab.value === 'json') {
+        if (!props.request.responseBody) {
+          return '<span style="color: var(--text-dim);">(无响应体或请求处理中)</span>';
+        }
+        if (jsonInfo.value.isValidJson && jsonInfo.value.formatted) {
+          return highlightJson(jsonInfo.value.formatted);
+        }
+        return escapeHtml(props.request.responseBody);
+      }
+      const text = props.request.responseBody || '';
+      return text ? escapeHtml(text) : '<span style="color: var(--text-dim);">(无响应体或请求处理中)</span>';
+    });
+
+    const copyBodyText = () => {
+      const text = (activeSubTab.value === 'json' && jsonInfo.value.formatted)
+        ? jsonInfo.value.formatted
+        : (props.request.responseBody || '');
+      actions.copy(text, '响应内容已复制');
+    };
 
     const setCookies = computed(() => {
       const setCookie = props.request.responseHeaders?.['set-cookie'] || '';
@@ -175,6 +196,7 @@ export default {
       isJson,
       jsonInfo,
       lines,
+      highlightedContent,
       setCookies,
       mediaUrl,
       imageSrc,
@@ -185,6 +207,7 @@ export default {
       downloadBody,
       openInNewTab,
       formatBytes,
+      copyBodyText,
       actions
     };
   },
@@ -290,7 +313,7 @@ export default {
           <button class="btn btn-default btn-xs" @click="downloadBody()" title="下载当前接口响应内容">
             💾 下载原响应
           </button>
-          <button class="btn btn-default btn-xs" @click="actions.copy(request.responseBody || '', '响应内容已复制')">
+          <button class="btn btn-default btn-xs" @click="copyBodyText()">
             复制文本
           </button>
         </div>
@@ -380,7 +403,7 @@ export default {
             <span v-for="n in lines.length" :key="n">{{ n }}</span>
           </div>
           <div class="code-lines-content">
-            <pre><code>{{ lines.join('\\n') }}</code></pre>
+            <pre><code v-html="highlightedContent"></code></pre>
           </div>
         </div>
 
