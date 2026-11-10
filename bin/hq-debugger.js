@@ -19,6 +19,7 @@ const pkg = require('../package.json');
 const proxyServer = require('../src/proxy-server');
 const webServer = require('../src/web-server');
 const systemProxyManager = require('../src/system-proxy-manager');
+const { getAndroidSystemCertFilename } = require('../src/cert-manager');
 
 // 数据与 PID 保存目录
 const BASE_DIR = process.env.HQ_DATA_DIR || path.join(os.homedir(), '.hqnetwork');
@@ -224,15 +225,22 @@ async function startService(opts) {
     const primaryIp = lanIps[0]?.ip || '127.0.0.1';
     const webUrl = `http://localhost:${actualWebPort}`;
 
+    const systemCertName = getAndroidSystemCertFilename() || 'ca.0';
+
     console.log('-----------------------------------------------------');
     console.log(`\x1b[32m[✔] 抓包代理端口 (Proxy) :\x1b[0m http://127.0.0.1:${actualProxyPort}`);
     console.log(`\x1b[32m[✔] Web 管理控制台 (Web)  :\x1b[0m \x1b[4m${webUrl}\x1b[0m`);
     console.log(`\x1b[32m[✔] 局域网接入地址 (LAN)  :\x1b[0m http://${primaryIp}:${actualProxyPort}`);
-    console.log(`\x1b[32m[✔] 根证书快速下载 (CA)   :\x1b[0m http://${primaryIp}:${actualWebPort}/ca.pem`);
+    console.log('-----------------------------------------------------');
+    console.log(`[各系统根证书专属下载与安装说明]`);
+    console.log(`  🍎 \x1b[36miOS / iPadOS / macOS\x1b[0m : http://${primaryIp}:${actualWebPort}/ca.pem \x1b[90m(Safari 访问直接安装描述文件)\x1b[0m`);
+    console.log(`  🤖 \x1b[32mAndroid (用户凭据)\x1b[0m   : http://${primaryIp}:${actualWebPort}/ca.crt \x1b[90m(设置->安全->从存储设备安装)\x1b[0m`);
+    console.log(`  🛡️ \x1b[33mAndroid (Root系统级)\x1b[0m : http://${primaryIp}:${actualWebPort}/${systemCertName} \x1b[90m(放入 /system/etc/security/cacerts/)\x1b[0m`);
+    console.log(`  🪟 \x1b[34mWindows / PC 电脑\x1b[0m    : http://${primaryIp}:${actualWebPort}/ca.crt \x1b[90m(双击导入受信任的根证书颁发机构)\x1b[0m`);
     console.log('-----------------------------------------------------');
     console.log(`[移动设备联调指引]`);
     console.log(` 1. 手机连接同一 Wi-Fi，配置 HTTP 代理为 ${primaryIp}:${actualProxyPort}`);
-    console.log(` 2. 用手机浏览器打开 http://${primaryIp}:${actualWebPort}/ca.pem 下载并安装根证书`);
+    console.log(` 2. 打开手机系统浏览器访问上方对应系统的证书链接下载并信任`);
     console.log('-----------------------------------------------------');
 
     // 自动在默认浏览器打开控制台

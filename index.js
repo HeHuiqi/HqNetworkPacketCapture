@@ -52,6 +52,7 @@ if (!process.env.DEBUG) {
 const proxyServer = require('./src/proxy-server');
 const webServer = require('./src/web-server');
 const systemProxyManager = require('./src/system-proxy-manager');
+const { getAndroidSystemCertFilename } = require('./src/cert-manager');
 
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '8888', 10);
 const WEB_PORT = parseInt(process.env.WEB_PORT || '8899', 10);
@@ -69,13 +70,18 @@ async function main() {
     const actualWebPort = await webServer.start(WEB_PORT);
 
     const primaryIp = webServer.getLanIps()[0]?.ip || '127.0.0.1';
+    const systemCertName = getAndroidSystemCertFilename() || 'ca.0';
     console.log('-----------------------------------------------------');
     console.log(`[使用指南]`);
     console.log(` 1. 在电脑浏览器打开抓包控制台: http://localhost:${actualWebPort}`);
     console.log(` 2. 手机连接同一局域网 Wi-Fi，配置 HTTP 代理:`);
     console.log(`    - 服务器 IP: ${primaryIp}`);
     console.log(`    - 端口号:    ${actualProxyPort}`);
-    console.log(` 3. 手机浏览器访问 http://${primaryIp}:${actualWebPort}/ca.pem 下载并信任根证书`);
+    console.log(` 3. 手机浏览器访问对应系统的证书链接下载并信任:`);
+    console.log(`    - 🍎 iOS / iPadOS / macOS  : http://${primaryIp}:${actualWebPort}/ca.pem (Safari 访问直接安装描述文件)`);
+    console.log(`    - 🤖 Android (用户凭据)    : http://${primaryIp}:${actualWebPort}/ca.crt (设置->安全->从存储设备安装 CA 证书)`);
+    console.log(`    - 🛡️ Android (Root系统级) : http://${primaryIp}:${actualWebPort}/${systemCertName} (放入 /system/etc/security/cacerts/)`);
+    console.log(`    - 🪟 Windows / PC 电脑     : http://${primaryIp}:${actualWebPort}/ca.crt (双击导入受信任的根证书颁发机构)`);
     console.log('=====================================================');
   } catch (err) {
     console.error('启动失败:', err);
