@@ -289,6 +289,15 @@ export default {
       });
     };
 
+    // 切换左侧代码栏折叠/展开
+    const toggleLeftCodePane = () => {
+      if (viewMode.value === 'split' || viewMode.value === 'code') {
+        viewMode.value = 'tree';
+      } else {
+        viewMode.value = 'split';
+      }
+    };
+
     // 应用快捷模板
     const applyTemplate = (type) => {
       let tpl = {};
@@ -341,11 +350,12 @@ export default {
       copyContent,
       expandAll,
       collapseAll,
+      toggleLeftCodePane,
       applyTemplate
     };
   },
   template: `
-    <div class="json-tree-editor-wrapper" :style="{ minHeight: height }">
+    <div class="json-tree-editor-wrapper" :class="{ 'is-full-height': height === '100%' }" :style="{ height: height, minHeight: height === '100%' ? '0' : height }">
       <!-- 顶部操作工具栏 -->
       <div class="jte-toolbar">
         <!-- 左侧：视图模式切换 -->
@@ -421,8 +431,18 @@ export default {
           class="jte-pane jte-code-pane"
         >
           <div class="jte-pane-header">
-            <span class="jte-pane-title">📝 JSON 源码 (Code View)</span>
-            <span class="jte-pane-hint">支持实时语法着色、Tab缩进与错误检测</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="jte-pane-title">📝 JSON 源码 (Code View)</span>
+              <span class="jte-pane-hint">实时语法着色、Tab缩进</span>
+            </div>
+            <button 
+              type="button" 
+              class="jte-tool-btn btn-xs" 
+              @click="toggleLeftCodePane" 
+              title="收起左侧代码栏，独占显示树形"
+            >
+              ◀ 收起代码
+            </button>
           </div>
 
           <div class="jte-code-canvas">
@@ -461,9 +481,14 @@ export default {
         </div>
 
         <!-- 2. 中间分隔线 (仅双栏显示) -->
-        <div v-if="viewMode === 'split'" class="jte-split-divider">
+        <div 
+          v-if="viewMode === 'split'" 
+          class="jte-split-divider" 
+          @click="toggleLeftCodePane" 
+          title="点击快速收起左侧代码栏，全屏展示树形"
+        >
           <div class="divider-line"></div>
-          <div class="divider-icon" title="左右双向实时同步">⇄</div>
+          <div class="divider-icon" title="点击快速收起/展开左侧代码栏">⇄</div>
         </div>
 
         <!-- 3. 右侧树形可视化编辑器 -->
@@ -472,8 +497,19 @@ export default {
           class="jte-pane jte-tree-pane"
         >
           <div class="jte-pane-header">
-            <span class="jte-pane-title">🌳 可视化树形编辑器 (Tree View)</span>
-            <span class="jte-pane-hint">点击键/值就地修改，下拉换类型，悬浮加删字段</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button 
+                v-if="viewMode === 'tree'" 
+                type="button" 
+                class="jte-tool-btn btn-xs" 
+                @click="toggleLeftCodePane" 
+                title="展开左侧代码栏，恢复双栏并排"
+              >
+                ▶ 展开代码
+              </button>
+              <span class="jte-pane-title">🌳 可视化树形编辑器 (Tree View)</span>
+              <span class="jte-pane-hint">点击键/值就地修改，下拉换类型，悬浮加删字段</span>
+            </div>
           </div>
 
           <div class="jte-tree-canvas">
