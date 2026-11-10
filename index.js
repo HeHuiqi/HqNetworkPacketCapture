@@ -50,11 +50,13 @@ if (!process.env.DEBUG) {
 }
 
 const proxyServer = require('./src/proxy-server');
+const socksServer = require('./src/socks-server');
 const webServer = require('./src/web-server');
 const systemProxyManager = require('./src/system-proxy-manager');
 const { getAndroidSystemCertFilename } = require('./src/cert-manager');
 
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '8888', 10);
+const SOCKS_PORT = parseInt(process.env.SOCKS_PORT || '8889', 10);
 const WEB_PORT = parseInt(process.env.WEB_PORT || '8899', 10);
 
 async function main() {
@@ -66,7 +68,10 @@ async function main() {
     // 1. 启动代理内核 (支持 HTTP / HTTPS MITM / HTTP/2，端口被占用时自动递增)
     const actualProxyPort = await proxyServer.start(PROXY_PORT);
 
-    // 2. 启动 Web 控制台与管理服务 (端口被占用时自动递增)
+    // 2. 启动 SOCKS5 代理网桥 (支持 SOCKS5 / SOCKS4 客户端抓包与 Mock，端口被占用时自动递增)
+    const actualSocksPort = await socksServer.start(SOCKS_PORT, actualProxyPort);
+
+    // 3. 启动 Web 控制台与管理服务 (端口被占用时自动递增)
     const actualWebPort = await webServer.start(WEB_PORT);
 
     const primaryIp = webServer.getLanIps()[0]?.ip || '127.0.0.1';
@@ -74,9 +79,9 @@ async function main() {
     console.log('-----------------------------------------------------');
     console.log(`[使用指南]`);
     console.log(` 1. 在电脑浏览器打开抓包控制台: http://localhost:${actualWebPort}`);
-    console.log(` 2. 手机连接同一局域网 Wi-Fi，配置 HTTP 代理:`);
-    console.log(`    - 服务器 IP: ${primaryIp}`);
-    console.log(`    - 端口号:    ${actualProxyPort}`);
+    console.log(` 2. 手机或客户端连接抓包代理 (二者任选其一):`);
+    console.log(`    - 🌐 HTTP 代理模式   : IP: ${primaryIp}   端口: ${actualProxyPort}`);
+    console.log(`    - 🧦 SOCKS5 代理模式 : IP: ${primaryIp}   端口: ${actualSocksPort}`);
     console.log(` 3. 手机浏览器访问对应系统的证书链接下载并信任:`);
     console.log(`    - 🍎 iOS / iPadOS / macOS  : http://${primaryIp}:${actualWebPort}/ca.pem (Safari 访问直接安装描述文件)`);
     console.log(`    - 🤖 Android (用户凭据)    : http://${primaryIp}:${actualWebPort}/ca.crt (设置->安全->从存储设备安装 CA 证书)`);
@@ -93,6 +98,7 @@ async function main() {
 async function shutdown() {
   console.log('\n正在停止服务...');
   systemProxyManager.restore();
+  await socksServer.stop();
   await proxyServer.stop();
   process.exit(0);
 }

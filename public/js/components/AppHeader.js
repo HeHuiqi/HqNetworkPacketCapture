@@ -32,11 +32,14 @@ export default {
 
         <div 
           class="proxy-info-pill" 
-          @click="actions.copy((store.lanIps[0]?.ip || '127.0.0.1') + ':' + store.proxyPort, '代理地址已复制')" 
-          title="点击复制代理地址"
+          @click="actions.copy((store.lanIps[0]?.ip || '127.0.0.1') + ':' + store.proxyPort, 'HTTP 代理地址已复制 (SOCKS5 端口: ' + (store.socksPort || 8889) + ')')" 
+          :title="'点击复制 HTTP 代理地址\\nHTTP 端口: ' + store.proxyPort + '\\nSOCKS5 端口: ' + (store.socksPort || 8889)"
         >
-          <span>🌐 代理:</span>
+          <span>🌐 HTTP:</span>
           <strong>{{ store.lanIps[0]?.ip || '127.0.0.1' }}:{{ store.proxyPort }}</strong>
+          <span style="opacity: 0.4; margin: 0 4px;">|</span>
+          <span>🧦 SOCKS5:</span>
+          <strong>{{ store.socksPort || 8889 }}</strong>
           <span>📋</span>
         </div>
 

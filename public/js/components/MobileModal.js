@@ -52,7 +52,8 @@ export default {
               </p>
               <div class="proxy-param-box">
                 <div>服务器 IP: <strong>{{ store.lanIps[0]?.ip || '127.0.0.1' }}</strong></div>
-                <div>端口号:    <strong>{{ store.proxyPort }}</strong></div>
+                <div>HTTP 代理端口: <strong>{{ store.proxyPort }}</strong> (手机常规 Wi-Fi 代理)</div>
+                <div>SOCKS5 代理端口: <strong>{{ store.socksPort || 8889 }}</strong> (小火箭/Postern/客户端专用)</div>
               </div>
 
               <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">

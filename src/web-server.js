@@ -10,6 +10,7 @@ const { CA_CERT_PATH, CA_CRT_PATH, getAndroidSystemCertFilename } = require('./c
 const ruleManager = require('./rule-manager');
 const settingsManager = require('./settings-manager');
 const proxyServer = require('./proxy-server');
+const socksServer = require('./socks-server');
 const systemProxyManager = require('./system-proxy-manager');
 
 class WebServer {
@@ -178,6 +179,7 @@ class WebServer {
       const lanIps = this.getLanIps();
       res.json({
         proxyPort: proxyServer.port,
+        socksPort: socksServer.port,
         webPort: this.port,
         lanIps,
         isRecording: proxyServer.isRecording,
@@ -462,6 +464,7 @@ class WebServer {
           rules: ruleManager.getRules(),
           isRecording: proxyServer.isRecording,
           proxyPort: proxyServer.port,
+          socksPort: socksServer.port,
           webPort: this.port,
           lanIps: this.getLanIps(),
           systemProxy: systemProxyManager.getStatus(),

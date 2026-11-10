@@ -10,6 +10,7 @@ export const store = reactive({
   theme: localStorage.getItem('hq_theme') || 'dark', // 'dark' | 'light'
   isRecording: true,
   proxyPort: 8888,
+  socksPort: 8889,
   webPort: 8899,
   lanIps: [],
   rules: [],
@@ -506,6 +507,7 @@ export const actions = {
           store.rules = data.rules || [];
           store.isRecording = data.isRecording;
           store.proxyPort = data.proxyPort;
+          if (data.socksPort) store.socksPort = data.socksPort;
           store.webPort = data.webPort;
           store.lanIps = data.lanIps || [];
           if (data.systemProxy) store.systemProxy = data.systemProxy;

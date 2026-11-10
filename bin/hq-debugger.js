@@ -17,6 +17,7 @@ const { exec, spawn } = require('child_process');
 
 const pkg = require('../package.json');
 const proxyServer = require('../src/proxy-server');
+const socksServer = require('../src/socks-server');
 const webServer = require('../src/web-server');
 const systemProxyManager = require('../src/system-proxy-manager');
 const { getAndroidSystemCertFilename } = require('../src/cert-manager');
@@ -64,6 +65,7 @@ function parseArgs() {
   const options = {
     command: 'start', // 'start' | 'stop' | 'status' | 'restart' | 'help' | 'version'
     proxyPort: parseInt(process.env.PROXY_PORT || '8888', 10),
+    socksPort: parseInt(process.env.SOCKS_PORT || '8889', 10),
     webPort: parseInt(process.env.WEB_PORT || '8899', 10),
     open: true,
     systemProxy: false,
@@ -81,6 +83,9 @@ function parseArgs() {
     } else if (arg === '-p' || arg === '--port' || arg === '--proxy-port') {
       const p = parseInt(args[++i], 10);
       if (!isNaN(p)) options.proxyPort = p;
+    } else if (arg === '-k' || arg === '--socks-port') {
+      const k = parseInt(args[++i], 10);
+      if (!isNaN(k)) options.socksPort = k;
     } else if (arg === '-w' || arg === '--web-port') {
       const w = parseInt(args[++i], 10);
       if (!isNaN(w)) options.webPort = w;
@@ -115,8 +120,9 @@ HQ Network Debugger & MapLocal Mock Proxy (v${pkg.version})
   -h, --help         查看命令帮助说明
 
 参数选项:
-  -p, --port <port>      指定代理监听端口 (默认: 8888，被占用自动 +1 探测)
-  -w, --web-port <port>  指定 Web 控制台端口 (默认: 8899，被占用自动 +1 探测)
+  -p, --port <port>        指定 HTTP 代理监听端口 (默认: 8888，被占用自动 +1 探测)
+  -k, --socks-port <port>   指定 SOCKS5 代理监听端口 (默认: 8889，被占用自动 +1 探测)
+  -w, --web-port <port>    指定 Web 控制台端口 (默认: 8899，被占用自动 +1 探测)
   -s, --system-proxy     自动开启本机系统全局代理 (退出时自动还原)
   -o, --open             启动后在默认浏览器自动打开控制台 (默认开启)
   --no-open              不自动弹出浏览器窗口
@@ -211,10 +217,13 @@ async function startService(opts) {
     // 1. 启动代理内核 (支持被占用自动 +1 探测)
     const actualProxyPort = await proxyServer.start(opts.proxyPort);
 
-    // 2. 启动 Web 控制台与 API 服务 (支持被占用自动 +1 探测)
+    // 2. 启动 SOCKS5 代理网桥 (支持被占用自动 +1 探测)
+    const actualSocksPort = await socksServer.start(opts.socksPort, actualProxyPort);
+
+    // 3. 启动 Web 控制台与 API 服务 (支持被占用自动 +1 探测)
     const actualWebPort = await webServer.start(opts.webPort);
 
-    // 3. 是否开启本机系统代理
+    // 4. 是否开启本机系统代理
     if (opts.systemProxy) {
       console.log(`[系统代理] 正在设置本机系统代理指向 127.0.0.1:${actualProxyPort}...`);
       systemProxyManager.enable(actualProxyPort);
@@ -228,9 +237,10 @@ async function startService(opts) {
     const systemCertName = getAndroidSystemCertFilename() || 'ca.0';
 
     console.log('-----------------------------------------------------');
-    console.log(`\x1b[32m[✔] 抓包代理端口 (Proxy) :\x1b[0m http://127.0.0.1:${actualProxyPort}`);
-    console.log(`\x1b[32m[✔] Web 管理控制台 (Web)  :\x1b[0m \x1b[4m${webUrl}\x1b[0m`);
-    console.log(`\x1b[32m[✔] 局域网接入地址 (LAN)  :\x1b[0m http://${primaryIp}:${actualProxyPort}`);
+    console.log(`\x1b[32m[✔] HTTP 抓包代理端口 (Proxy)   :\x1b[0m http://127.0.0.1:${actualProxyPort}`);
+    console.log(`\x1b[32m[✔] SOCKS5 代理网桥 (SOCKS5)    :\x1b[0m socks5://127.0.0.1:${actualSocksPort}`);
+    console.log(`\x1b[32m[✔] Web 管理控制台 (Web)        :\x1b[0m \x1b[4m${webUrl}\x1b[0m`);
+    console.log(`\x1b[32m[✔] 局域网接入地址 (LAN)        :\x1b[0m http://${primaryIp}:${actualProxyPort} / socks5://${primaryIp}:${actualSocksPort}`);
     console.log('-----------------------------------------------------');
     console.log(`[各系统根证书专属下载与安装说明]`);
     console.log(`  🍎 \x1b[36miOS / iPadOS / macOS\x1b[0m : http://${primaryIp}:${actualWebPort}/ca.pem \x1b[90m(Safari 访问直接安装描述文件)\x1b[0m`);
@@ -238,9 +248,10 @@ async function startService(opts) {
     console.log(`  🛡️ \x1b[33mAndroid (Root系统级)\x1b[0m : http://${primaryIp}:${actualWebPort}/${systemCertName} \x1b[90m(放入 /system/etc/security/cacerts/)\x1b[0m`);
     console.log(`  🪟 \x1b[34mWindows / PC 电脑\x1b[0m    : http://${primaryIp}:${actualWebPort}/ca.crt \x1b[90m(双击导入受信任的根证书颁发机构)\x1b[0m`);
     console.log('-----------------------------------------------------');
-    console.log(`[移动设备联调指引]`);
-    console.log(` 1. 手机连接同一 Wi-Fi，配置 HTTP 代理为 ${primaryIp}:${actualProxyPort}`);
-    console.log(` 2. 打开手机系统浏览器访问上方对应系统的证书链接下载并信任`);
+    console.log(`[客户端与移动设备配置指引]`);
+    console.log(` 1. 🌐 HTTP 代理模式   : 手机/客户端配置 HTTP 代理为 ${primaryIp}:${actualProxyPort}`);
+    console.log(` 2. 🧦 SOCKS5 代理模式 : 手机/客户端配置 SOCKS5 代理为 ${primaryIp}:${actualSocksPort}`);
+    console.log(` 3. 打开手机系统浏览器访问上方对应系统的证书链接下载并信任`);
     console.log('-----------------------------------------------------');
 
     // 自动在默认浏览器打开控制台
@@ -261,6 +272,7 @@ async function startService(opts) {
           console.log('[✔] 本机系统代理已安全恢复');
         }
         try { fs.unlinkSync(PID_FILE); } catch (e) {}
+        await socksServer.stop();
         await proxyServer.stop();
         await webServer.stop();
       } catch (e) {}
