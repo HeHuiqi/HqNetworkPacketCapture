@@ -3,8 +3,23 @@
   "version": "1.0.0",
   "description": "HQ Network Debugger & MapLocal Mock",
   "main": "index.js",
+  "bin": {
+    "hq-debugger": "bin/hq-debugger.js",
+    "hqd": "bin/hq-debugger.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "index.js",
+    "README.md"
+  ],
   "scripts": {
     "start": "node index.js",
+    "cli": "node bin/hq-debugger.js",
+    "cli:stop": "node bin/hq-debugger.js stop",
+    "cli:status": "node bin/hq-debugger.js status",
+    "npm:pack": "mkdir -p 'dist/方案C-NPM' && npm pack --pack-destination='dist/方案C-NPM'",
     "tauri:prep": "mkdir -p src-tauri/backend/bin src-tauri/bin && (test -f src-tauri/bin/node || cp $(which node) src-tauri/bin/node) && rsync -a --delete --exclude='src-tauri' --exclude='dist' --exclude='.git' --exclude='node_modules/electron' --exclude='node_modules/app-builder-bin' src public apks node_modules index.js package.json src-tauri/backend/ && cp src-tauri/bin/node src-tauri/backend/bin/node && (cd src-tauri/backend && npm prune --omit=dev --no-audit --no-fund) && rm -rf src-tauri/backend/node_modules/.bin src-tauri/backend/node_modules/@types src-tauri/backend/node_modules/vue src-tauri/backend/node_modules/@vue && find src-tauri/backend/node_modules -name '*.map' -delete",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
