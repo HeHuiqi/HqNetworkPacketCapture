@@ -1744,3 +1744,678 @@ input:checked + .slider:before { transform: translateX(16px); }
 }
 
 
+
+
+/* ==========================================================================
+   JsonTreeEditor & JsonTreeNode 左右双栏实时同步 JSON 可视化编辑器
+   ========================================================================== */
+
+.modal-card.modal-mock {
+  max-width: 1140px;
+  width: 95%;
+}
+
+.json-tree-editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  margin-top: 6px;
+}
+
+/* 顶部操作工具栏 */
+.jte-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.jte-mode-group {
+  display: flex;
+  background: var(--bg-primary);
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.jte-mode-btn {
+  background: transparent;
+  border: none;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.jte-mode-btn:hover {
+  color: var(--text-main);
+}
+
+.jte-mode-btn.active {
+  background: var(--accent-purple);
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(139, 92, 246, 0.35);
+}
+
+.jte-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jte-tool-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.jte-tool-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-blue);
+  color: #ffffff;
+}
+
+.jte-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-color);
+  margin: 0 3px;
+}
+
+.jte-status-box {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--accent-green);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jte-status-box.status-error {
+  color: var(--accent-red);
+}
+
+.status-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* 主工作区 */
+.jte-workspace {
+  display: flex;
+  flex-direction: row;
+  height: 380px;
+  overflow: hidden;
+  position: relative;
+}
+
+.jte-workspace.mode-split .jte-pane {
+  flex: 1;
+  width: 50%;
+}
+
+.jte-workspace.mode-code .jte-code-pane {
+  flex: 1;
+  width: 100%;
+}
+
+.jte-workspace.mode-tree .jte-tree-pane {
+  flex: 1;
+  width: 100%;
+}
+
+.jte-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+.jte-pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+
+.jte-pane-title {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.jte-pane-hint {
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.jte-split-divider {
+  width: 1px;
+  background: var(--border-color);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.divider-icon {
+  position: absolute;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* 左侧代码编辑区 */
+.jte-code-canvas {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.jte-line-numbers {
+  width: 38px;
+  padding: 10px 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  text-align: right;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-dim);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.jte-line-no {
+  padding-right: 8px;
+}
+
+.jte-stage {
+  flex: 1;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.jte-highlight-layer,
+.jte-code-textarea {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+  tab-size: 2;
+  padding: 10px 12px;
+  margin: 0;
+  box-sizing: border-box;
+  white-space: pre;
+  letter-spacing: 0;
+}
+
+.jte-highlight-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  color: var(--text-main);
+  background: transparent;
+}
+
+.jte-code-textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: auto;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: #60a5fa;
+  z-index: 2;
+}
+
+.jte-code-textarea::selection {
+  background: rgba(59, 130, 246, 0.35);
+  color: transparent;
+}
+
+/* JSON Token 着色样式 (Dark 模式) */
+.tok-key {
+  color: #d2a8ff;
+  font-weight: 500;
+}
+
+.tok-colon {
+  color: #8b949e;
+}
+
+.tok-string {
+  color: #7ee787;
+}
+
+.tok-number {
+  color: #79c0ff;
+}
+
+.tok-boolean {
+  color: #ff7b72;
+  font-weight: 500;
+}
+
+.tok-null {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.tok-punct {
+  color: #8b949e;
+}
+
+/* Light 模式高亮覆盖 */
+[data-theme="light"] .tok-key { color: #8250df; }
+[data-theme="light"] .tok-string { color: #116329; }
+[data-theme="light"] .tok-number { color: #0550ae; }
+[data-theme="light"] .tok-boolean { color: #cf222e; }
+[data-theme="light"] .tok-null { color: #6e7781; }
+[data-theme="light"] .tok-punct { color: #57606a; }
+
+/* 右侧树形可视化区 */
+.jte-tree-canvas {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.jte-parse-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #fca5a5;
+}
+
+.jte-empty-tree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 80%;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 20px;
+}
+
+.jte-empty-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.jte-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.jte-empty-sub {
+  font-size: 11.5px;
+  margin-bottom: 12px;
+}
+
+.jte-template-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* 树节点样式 */
+.tree-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-node-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 22px;
+  min-height: 26px;
+  transition: background 0.1s ease;
+}
+
+.tree-node-row:hover {
+  background: var(--bg-hover);
+}
+
+.tree-node-row:hover .tree-node-actions {
+  opacity: 1;
+}
+
+.tree-expander {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  cursor: pointer;
+  color: var(--text-muted);
+  user-select: none;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.tree-expander:hover {
+  color: var(--accent-blue);
+  background: var(--bg-tertiary);
+}
+
+.tree-expander-spacer {
+  width: 14px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.tree-key-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tree-array-index {
+  color: #79c0ff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 2px;
+}
+
+.tree-key-text {
+  color: #d2a8ff;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tree-key-text.editable:hover {
+  text-decoration: underline;
+  color: #ffffff;
+}
+
+[data-theme="light"] .tree-key-text {
+  color: #8250df;
+}
+
+.tree-key-input {
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-blue);
+  border-radius: 3px;
+  color: var(--text-main);
+  padding: 1px 4px;
+  width: 110px;
+  outline: none;
+}
+
+.tree-colon {
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.tree-root-label {
+  font-weight: 600;
+  color: var(--accent-purple);
+  margin-right: 6px;
+}
+
+.tree-value-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-val-string-box,
+.tree-val-number-box {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tree-val-input {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 1px 4px;
+  min-width: 60px;
+  max-width: 260px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.tree-val-input:hover,
+.tree-val-input:focus {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+.tree-val-input.val-string {
+  color: #7ee787;
+}
+
+[data-theme="light"] .tree-val-input.val-string {
+  color: #116329;
+}
+
+.tree-quote {
+  color: #7ee787;
+  opacity: 0.8;
+}
+
+[data-theme="light"] .tree-quote {
+  color: #116329;
+}
+
+.tree-val-input.val-number {
+  color: #79c0ff;
+}
+
+[data-theme="light"] .tree-val-input.val-number {
+  color: #0550ae;
+}
+
+.tree-bool-btn {
+  border: none;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tree-bool-btn.bool-true {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.tree-bool-btn.bool-false {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.tree-null-tag {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.tree-bracket {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.tree-badge-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-tertiary);
+  padding: 0 4px;
+  border-radius: 3px;
+  margin: 0 4px;
+  cursor: pointer;
+}
+
+.tree-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tree-type-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 0 2px;
+  border-radius: 3px;
+  height: 18px;
+  cursor: pointer;
+  outline: none;
+}
+
+.tree-btn-action {
+  border: none;
+  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tree-btn-action.btn-add {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.tree-btn-action.btn-add:hover {
+  background: var(--accent-blue);
+  color: #ffffff;
+}
+
+.tree-btn-action.btn-del {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.tree-btn-action.btn-del:hover {
+  background: var(--accent-red);
+  color: #ffffff;
+}
+
+.tree-children {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"] .tree-children {
+  border-left-color: rgba(0, 0, 0, 0.1);
+}
+
+.tree-empty-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.tree-empty-text {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.tree-btn-mini-add {
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  border-radius: 3px;
+  font-size: 10.5px;
+  color: var(--accent-blue);
+  cursor: pointer;
+  padding: 1px 6px;
+}
+
+.tree-btn-mini-add:hover {
+  border-color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.tree-closing-bracket {
+  color: var(--text-muted);
+  font-weight: 600;
+  line-height: 20px;
+  padding-left: 4px;
+}

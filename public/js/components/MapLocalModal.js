@@ -1,8 +1,12 @@
 import { store, actions } from '../store.js';
 import { formatJson } from '../utils/formatters.js';
+import JsonTreeEditor from './JsonTreeEditor.js';
 
 export default {
   name: 'MapLocalModal',
+  components: {
+    JsonTreeEditor
+  },
   setup() {
     const handleMatchTypeChange = (newType) => {
       if (store.mockForm.fromRulesModal || store.mockForm.id) {
@@ -67,7 +71,7 @@ export default {
   },
   template: `
     <div class="modal-overlay" v-if="store.modals.mock" @click.self="closeModal">
-      <div class="modal-card modal-lg">
+      <div class="modal-card modal-lg modal-mock">
         <div class="modal-header">
           <div class="modal-title">
             <span>⚡ {{ store.mockForm.id ? '编辑 Map Local 规则' : '创建 Map Local (Mock 请求)' }}</span>
@@ -160,13 +164,11 @@ export default {
 
             <div class="form-group" style="margin-bottom: 0;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <label class="form-label" style="margin-bottom: 0;">响应内容 (Response Body)</label>
-                <div style="display: flex; gap: 6px;">
-                  <button type="button" class="btn btn-default btn-xs" @click="formatJsonBody">✨ 格式化 JSON</button>
-                  <button type="button" class="btn btn-default btn-xs" @click="minifyJsonBody">压缩单行</button>
-                </div>
+                <label class="form-label" style="margin-bottom: 0;">
+                  响应内容 (Response Body - 左右双栏实时树形编辑)
+                </label>
               </div>
-              <textarea class="form-textarea" rows="8" v-model="store.mockForm.body" placeholder='{"code": 0, "message": "mocked success"}'></textarea>
+              <json-tree-editor v-model="store.mockForm.body" height="380px"></json-tree-editor>
             </div>
           </div>
         </div>
