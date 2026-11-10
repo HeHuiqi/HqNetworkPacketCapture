@@ -11,9 +11,12 @@
 
 ### 1. 🌐 全协议抓包与 HTTPS 流量透视
 - **现代协议支持**：基于 `mockttp` 核心引擎，完整支持 **HTTP/1.1**、**HTTPS (MITM 动态签发)**、**HTTP/2 (h2)** 与 **WebSocket** 流量实时拦截与明文解析。
+- **🧦 原生 SOCKS5/SOCKS4 代理网桥 (:8889)**：内置轻量级全双工 SOCKS 网桥，将 SOCKS 流量透明转换为 HTTP CONNECT 隧道，使支持 SOCKS5 代理的客户端或模拟器也能无缝享受抓包、HTTPS 解密与 Map Local 篡改。
+- **🌍 外部上游代理链式转发 (Upstream Proxy)**：完美兼容本机 Clash / VPN 等代理软件。在工具栏设置中开启外部代理后，抓包内核自动将外网流量链式转发至目标翻墙/科学上网节点，兼顾内网调试与外网访问。
 - **用户级持久化数据隔离 (`~/.hqnetwork/`)**：
   - 自动在用户主目录 `~/.hqnetwork/certs/` 生成并持久化保存 `HQ Network Debug CA` 根证书（`ca.pem` / `ca.crt` / `ca.key`）。
   - 自动在 `~/.hqnetwork/data/rules.json` 持久化保存 Map Local 规则。
+  - 自动在 `~/.hqnetwork/settings.json` 保存上游代理与用户偏好。
   - 即使作为打包后的 `.app` 运行在 macOS `/Applications` 只读目录下也能正常读写，升级或重装 App 永不丢失已信任的证书与 Mock 规则。
 
 ### 2. 🖥️ Charles 风格双视图 + 可拖拽分栏工作台
@@ -23,9 +26,10 @@
 - **📐 全向可拖拽分栏 (Resizable Split Panes)**：
   - **左右分栏**：自由拖拽调节左侧流量导航区与右侧详情检查器的宽度比例。
   - **上下分栏**：右侧详情区采用上下双面板设计（上半区 **Request 请求详情**，下半区 **Response 响应详情**），支持自由拖拽调节上下高度。
-- **🔬 深度报文检查器**：
-  - **Request 面板**：支持 `Overview`（全链路概览与耗时）、`Headers`、`Query`（自动解析 URL 参数表格）、`Body`（JSON 自动格式化 / Raw 切换）以及 **`cURL`**（一键复制完整可重放的 cURL 命令）。
-  - **Response 面板**：支持 `Body`（JSON 语法缩进美化）、`Preview`（图片/HTML 预览）、`Headers` 与一键复制响应内容。
+- **🔬 深度报文检查器与语法高亮**：
+  - **Request 面板**：支持 `JSON Text`（**自动缩进展开与语法着色高亮**）、`Headers`、`Query`（自动解析 URL 查询参数，**若参数值包含 JSON 亦自动格式化高亮**）、`Cookies`、`Raw` 以及 **`cURL`**（一键复制完整可重放的 cURL 命令）。
+  - **Response 面板**：支持 `JSON Text`（**键名、字符串、数值、布尔值全 Token 语法高亮**）、`Headers`、`Set-Cookie`、`Preview`（图片/HEIC/音频/视频/HTML沙箱预览）与一键复制美化后的 JSON。
+  - **优雅折叠与编辑**：Mock 弹窗内置仿 VS Code 风格的高性能 JSON 折叠树与语法着色编辑器。
 
 ### 3. ⚡ 强大的 Map Local (本地接口 Mock) 引擎
 - **右键一键 Mock**：在任意抓包记录上点击鼠标右键 -> 选择 **「⚡ Map Local (Mock 当前请求)」**，弹窗自动回填该请求的**方法、URL、真实状态码、响应头与格式化后的 JSON 响应体**。
@@ -74,21 +78,34 @@ npm run electron:dev
 
 ---
 
-## 📦 桌面客户端打包方案（双轨独立架构）
+## 📦 桌面客户端与命令行打包方案（三轨并驱）
 
-本项目同时内置了 **方案 A（Tauri 边车架构）** 与 **方案 B（Electron 原生内嵌架构）** 两套完全独立的打包流水线，产物分别输出至 [`dist/方案A-Tauri/`](dist/方案A-Tauri) 与 [`dist/方案B-Electron/`](dist/方案B-Electron)，互不干扰。
+本项目同时内置了 **方案 A（Tauri 边车架构）**、**方案 B（Electron 跨平台架构）** 与 **方案 C（NPM 全局 CLI 模式）** 三套独立打包体系，产物分别输出至 [`dist/`](dist/)：
 
-| 评估维度 | **方案 A：Tauri (Sidecar 边车模式)** | **方案 B：Electron (内置 Chromium)** |
-| :--- | :--- | :--- |
-| **执行打包命令** | `npm run tauri:build` | `npm run electron:build` |
-| **输出目录** | `dist/方案A-Tauri/` | `dist/方案B-Electron/` |
-| **DMG 安装包体积** | **~45 MB**（超轻量，仅为 Electron 的 1/3） | **~128 MB** |
-| **.app 解压体积** | **~140 MB** | **~290 MB** |
-| **UI 渲染引擎** | macOS 原生 WebKit（免带浏览器内核） | 内置完整 Chromium 浏览器 |
-| **运行时内存占用** | **40 ~ 70 MB**（极省内存） | **160 ~ 260 MB** |
-| **进程生命周期安全** | Rust 信号通知 + `stdin` 内核管道断开双重防孤儿进程锁 | Electron `before-quit` / `window-all-closed` 自动清理还原 |
+| 评估维度 | **方案 A：Tauri (Sidecar 边车模式)** | **方案 B：Electron (跨平台桌面端)** | **方案 C：NPM 全局 CLI (Whistle模式)** |
+| :--- | :--- | :--- | :--- |
+| **执行打包命令** | `npm run tauri:build` | `npm run electron:build` / `:build:win` | `npm run npm:pack` |
+| **输出目录** | `dist/方案A-Tauri/` | `dist/方案B-Electron/` | `dist/方案C-NPM/` |
+| **安装包/产物体积** | **~61 MB** (DMG) | **~132 MB** (Mac DMG) / **117 MB** (Win EXE) | **仅 ~5.7 MB** (.tgz 纯代码包) |
+| **平台支持** | macOS ARM64 | macOS ARM64 + Windows x64 (NSIS/便携版) | macOS / Windows / Linux 全平台通用 |
+| **UI 渲染引擎** | macOS 原生 WebKit（免带浏览器内核） | 内置完整 Chromium 浏览器 | 宿主系统浏览器 (Chrome/Edge/Safari) |
+| **运行时内存占用** | **40 ~ 70 MB**（极省内存） | **160 ~ 260 MB** | **40 ~ 70 MB** (仅 Node 守护进程) |
+| **使用方式** | 独立原生桌面 App，Dock 独立图标 | 独立原生桌面 App，Dock/任务栏独立图标 | 命令行全局指令 `hqd` / `hq-debugger` 一键唤起 |
 
-> 详细打包原理与配置文档请参考：[doc/pkg.md](doc/pkg.md)
+> 详细打包原理与技术选型请参考：[doc/pkg.md](doc/pkg.md)
+
+### 方案 C 快速启动与使用
+```bash
+# 全局安装打包生成的 npm 包
+npm install -g ./dist/方案C-NPM/hqnetworkpacketcapture-1.0.0.tgz
+
+# 启动抓包代理（自动打开浏览器控制台）
+hqd
+# 或后台启动 / 查看状态 / 停止
+hqd start
+hqd status
+hqd stop
+```
 
 ### 更新应用图标
 项目采用定制的 **3D 钛金光学棱镜** 高清透明圆角图标（母版位于 [`icons-design/icon-prism-3d.png`](icons-design/icon-prism-3d.png)）。如需重新生成全平台图标集（`.icns` / `.ico` / 多尺寸 `.png` / Web `favicon.png`），仅需执行：
@@ -126,21 +143,27 @@ npm run icon:gen
 
 ```text
 HqNetworkPacketCapture/
-├── dist/                             # 桌面端打包产物目录（按方案独立隔离）
-│   ├── 方案A-Tauri/                  # Tauri 打包产物 (.app & .dmg, ~45MB)
-│   └── 方案B-Electron/               # Electron 打包产物 (.app & .dmg, ~128MB)
+├── bin/                              # 方案 C：CLI 命令行执行脚本 (hqd / hq-debugger)
+├── dist/                             # 打包产物目录（按方案独立隔离）
+│   ├── 方案A-Tauri/                  # Tauri 产物 (.app & .dmg, ~61MB)
+│   ├── 方案B-Electron/               # Electron 产物 (macOS .dmg ~132MB / Win .exe ~117MB)
+│   └── 方案C-NPM/                    # NPM CLI 全局分发包 (.tgz, ~5.7MB)
 ├── doc/
 │   ├── 安卓免root抓包配置.md         # 安卓免 Root 真机 HTTPS 抓包配置实战全指南 (LSPatch 定制版 + AppProxy)
 │   ├── tuoyi虚拟机抓包配置.md        # 两仪 (Twoyi) 容器虚拟机 HTTPS 抓包实战指南
 │   ├── 新架构设计.md                 # 项目全新功能与前后端架构设计方案
-│   └── pkg.md                        # 桌面客户端与 CLI 打包方案架构设计文档
+│   ├── pkg.md                        # 桌面客户端与 CLI 打包方案架构设计文档
+│   └── 更新日志与问题排查历史-20261110.md # JSON 高亮、日志降噪、抓包方式对比与 Wireshark 可行性分析
 ├── icons-design/
 │   └── icon-prism-3d.png             # 3D 钛金光学棱镜 App 图标高清透明母版 (1024x1024)
 ├── src/                              # Node.js 代理与后端核心服务
 │   ├── cert-manager.js               # Root CA 证书生成与 ~/.hqnetwork/certs 持久化管理
-│   ├── proxy-server.js               # Mockttp 代理内核 (HTTPS MITM 解密、自定义谓词路由匹配)
+│   ├── proxy-server.js               # Mockttp 代理内核 (HTTPS MITM 解密、外部上游代理挂载、谓词路由匹配)
+│   ├── socks-server.js               # 原生 SOCKS5/SOCKS4 代理网桥 (:8889)
+│   ├── settings-manager.js           # 外部上游代理等用户偏好管理与持久化 (~/.hqnetwork/settings.json)
 │   ├── rule-manager.js               # Map Local 规则 CRUD 与 ~/.hqnetwork/data 持久化
 │   ├── system-proxy-manager.js       # 跨平台系统全局代理接管与安全还原 (macOS/Win/Linux)
+│   ├── heic-converter.js             # 苹果 HEIC 图像原生硬件解码与 JPEG 实时预览转换
 │   └── web-server.js                 # Express API + WebSocket 实时流量广播服务
 ├── public/                           # Vue 3 模块化前端控制台 (ES Modules 零构建架构)
 │   ├── index.html                    # Web 控制台主页面
@@ -156,8 +179,11 @@ HqNetworkPacketCapture/
 │       │   ├── DomainTree.js         # Structure 域名目录树组件
 │       │   ├── SequenceList.js       # Sequence 时间序列列表组件
 │       │   ├── RightPanel.js         # 右侧上下可拖拽分栏详情容器
-│       │   ├── RequestViewer.js      # Request 请求详情检查器 (Overview/Headers/Query/Body/cURL)
-│       │   ├── ResponseViewer.js     # Response 响应详情检查器 (Body/Preview/Headers)
+│       │   ├── RequestViewer.js      # Request 请求详情检查器 (JSON 语法着色/Headers/Query JSON/Body/cURL)
+│       │   ├── ResponseViewer.js     # Response 响应详情检查器 (JSON 语法着色/媒体预览/Headers)
+│       │   ├── JsonTreeEditor.js     # 仿 VS Code 代码折叠与语法着色 JSON 编辑器
+│       │   ├── JsonTreeNode.js       # JSON 节点递归可视化与修改组件
+│       │   ├── UpstreamProxyModal.js # 外部上游代理 (VPN / Clash) 设置弹窗
 │       │   ├── ContextMenu.js        # 右键快捷上下文菜单
 │       │   ├── MapLocalModal.js      # Map Local 规则创建与编辑弹窗
 │       │   ├── RulesManagerModal.js  # Mock 规则列表管理弹窗 (两行截断 + 居中操作列)
@@ -165,11 +191,11 @@ HqNetworkPacketCapture/
 │       │   ├── MobileModal.js        # 手机扫码配网与证书下载弹窗
 │       │   └── ConfirmModal.js       # 通用自定义二次确认弹窗组件
 │       └── utils/
-│           ├── formatters.js         # 字节大小、耗时、JSON 格式化与 cURL 生成工具
+│           ├── formatters.js         # 字节、耗时、原生 JSON 语法着色分词器与 cURL 生成工具
 │           └── treeHelper.js         # URL 解析与域名目录树构建算法
 ├── src-tauri/                        # 方案 A：Tauri (Rust) 桌面端工程与边车生命周期管理
 ├── electron-main.js                  # 方案 B：Electron 桌面端主进程入口
 ├── electron-builder.json             # 方案 B：Electron 打包配置文件
-├── index.js                          # 独立服务与 Tauri 边车启动入口 (含管道安全停机锁)
+├── index.js                          # 独立服务与 Tauri 边车启动入口 (含管道安全停机锁与日志降噪)
 └── package.json                      # 项目脚本与依赖配置
 ```
