@@ -353,7 +353,7 @@ class WebServer {
 
     // 请求列表与清除
     this.app.get('/api/requests', (req, res) => {
-      const limit = parseInt(req.query.limit || 200, 10);
+      const limit = parseInt(req.query.limit || 1500, 10);
       res.json(proxyServer.getTransactions(limit));
     });
 
@@ -662,7 +662,7 @@ class WebServer {
       ws.send(JSON.stringify({
         type: 'init',
         data: {
-          requests: proxyServer.getTransactions(100).map(slimTransactionForBroadcast),
+          requests: proxyServer.getTransactions(1500).map(slimTransactionForBroadcast),
           rules: ruleManager.getRules(),
           isRecording: proxyServer.isRecording,
           proxyPort: proxyServer.port,

@@ -2,6 +2,8 @@ import { reactive, ref, computed } from '/vendor/vue.esm-browser.js';
 import { buildDomainTree, isDirectProbe } from './utils/treeHelper.js';
 import { formatJson, cleanMockResponseHeaders } from './utils/formatters.js';
 
+const MAX_STORED_REQUESTS = 1500; // 前端最多保留的抓包记录条数
+
 export const store = reactive({
   // 核心数据
   requests: [],
@@ -545,7 +547,7 @@ export const actions = {
           }
         } else if (type === 'request') {
           store.requests.unshift(data);
-          if (store.requests.length > 1000) store.requests.pop();
+          if (store.requests.length > MAX_STORED_REQUESTS) store.requests.pop();
           if (!store.selectedId) store.selectedId = data.id;
         } else if (type === 'response') {
           const index = store.requests.findIndex(r => r.id === data.id);
@@ -553,6 +555,7 @@ export const actions = {
             store.requests[index] = { ...store.requests[index], ...data };
           } else {
             store.requests.unshift(data);
+            if (store.requests.length > MAX_STORED_REQUESTS) store.requests.pop();
           }
         } else if (type === 'history-cleared') {
           store.requests = [];

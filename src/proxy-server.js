@@ -56,7 +56,7 @@ class ProxyServer extends EventEmitter {
     this.port = 8888;
     this.transactions = new Map(); // id -> transaction
     this.history = [];             // array of transaction ids
-    this.maxHistory = 1000;
+    this.maxHistory = 1500;
     this.bodyBuffers = new Map();  // id -> Buffer (LRU memory cache for images/videos/etc.)
     this.previewBuffers = new Map(); // id -> Buffer (LRU cache for converted preview e.g. HEIC -> JPEG)
     this.maxBufferCount = 200;
@@ -607,7 +607,7 @@ class ProxyServer extends EventEmitter {
     );
   }
 
-  getTransactions(limit = 100) {
+  getTransactions(limit = 1500) {
     return this.history.slice(0, limit).map(id => this.transactions.get(id)).filter(Boolean);
   }
 
