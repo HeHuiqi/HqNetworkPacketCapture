@@ -1,5 +1,5 @@
 import { reactive, ref, computed } from '/vendor/vue.esm-browser.js';
-import { buildDomainTree } from './utils/treeHelper.js';
+import { buildDomainTree, isDirectProbe } from './utils/treeHelper.js';
 import { formatJson, cleanMockResponseHeaders } from './utils/formatters.js';
 
 export const store = reactive({
@@ -40,6 +40,7 @@ export const store = reactive({
   filterMethod: 'ALL',
   filterStatus: 'ALL',
   onlyShowMocked: false,
+  hideDirectProbes: localStorage.getItem('hq_hide_probes') !== 'false', // 默认过滤隐藏无 Host 的无效直接探测请求
 
   // 目录树折叠状态存储 (domain -> boolean)
   domainExpandedMap: new Map(),
@@ -106,7 +107,7 @@ export const selectedRequest = computed(() => {
 
 // 计算属性：按域名组织的目录树数据
 export const domainTreeData = computed(() => {
-  return buildDomainTree(store.requests, store.domainExpandedMap, store.searchQuery, store.domainFilter);
+  return buildDomainTree(store.requests, store.domainExpandedMap, store.searchQuery, store.domainFilter, store.hideDirectProbes);
 });
 
 // 计算属性：平铺过滤列表 (Sequence 模式)
@@ -118,6 +119,9 @@ export const filteredRequests = computed(() => {
   const mockOnly = store.onlyShowMocked;
 
   return store.requests.filter(r => {
+    // 隐藏无 Host 的无效直接探测 (503)
+    if (store.hideDirectProbes && isDirectProbe(r)) return false;
+
     if (mockOnly && !r.isMocked) return false;
     if (method !== 'ALL' && r.method !== method) return false;
 
@@ -193,6 +197,13 @@ export const actions = {
     localStorage.setItem('hq_theme', store.theme);
     document.documentElement.setAttribute('data-theme', store.theme);
     actions.showToast(`已切换至${store.theme === 'dark' ? '黑色深色' : '白色浅色'}主题`, 'success');
+  },
+
+  // 切换是否过滤无 Host 的直接探测请求 (503 噪音)
+  toggleHideProbes() {
+    store.hideDirectProbes = !store.hideDirectProbes;
+    localStorage.setItem('hq_hide_probes', store.hideDirectProbes);
+    actions.showToast(store.hideDirectProbes ? '🛡️ 已过滤隐藏无 Host 的直接探测噪声' : '已显示全部无 Host 探测记录', 'info');
   },
 
   initTheme() {

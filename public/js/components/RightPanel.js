@@ -1,6 +1,7 @@
-import { ref } from '/vendor/vue.esm-browser.js';
+import { ref, computed } from '/vendor/vue.esm-browser.js';
 import { selectedRequest, actions } from '../store.js';
 import { generateCurl, formatDuration } from '../utils/formatters.js';
+import { isDirectProbe } from '../utils/treeHelper.js';
 import RequestViewer from './RequestViewer.js';
 import ResponseViewer from './ResponseViewer.js';
 
@@ -14,6 +15,10 @@ export default {
     // 上下分栏的高度百分比（默认请求占 48%）
     const requestHeightPercent = ref(48);
     const isDragging = ref(false);
+
+    const isProbeRequest = computed(() => {
+      return isDirectProbe(selectedRequest.value);
+    });
 
     const onMouseDownResizer = (e) => {
       e.preventDefault();
@@ -55,7 +60,8 @@ export default {
       requestHeightPercent,
       onMouseDownResizer,
       copyCurl,
-      formatDuration
+      formatDuration,
+      isProbeRequest
     };
   },
   template: `
@@ -98,6 +104,15 @@ export default {
           <button class="btn btn-default btn-xs" @click="actions.copy(selectedRequest.url, 'URL 已复制')">
             <span>📋 复制 URL</span>
           </button>
+        </div>
+      </div>
+
+      <!-- 探测请求特别说明条 -->
+      <div v-if="isProbeRequest" class="probe-alert-bar">
+        <span class="probe-alert-icon">⚠️</span>
+        <div class="probe-alert-content">
+          <strong>无 Host 目标探测请求 (客户端直接访问代理端口)</strong>：
+          客户端直接向代理端口发起了 HTTP 请求，但未携带 <code>Host</code> 头或未指定目标域名。代理服务无法获知上游转发地址，因此按 HTTP 规范直接返回 <code>503 Service Unavailable</code>。这类请求常见于操作系统连通性探活、系统守护进程或扫描器。若无需关注，可点击左上方 <code>🛡️</code> 盾牌按钮一键过滤隐藏。
         </div>
       </div>
 

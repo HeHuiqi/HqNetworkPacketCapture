@@ -27,7 +27,7 @@ export default {
           @contextmenu="actions.openContextMenu($event, domainNode.children[0]?.tx)"
         >
           <span class="tree-arrow" :class="{ expanded: domainNode.expanded }">▶</span>
-          <span class="domain-icon">🌐</span>
+          <span class="domain-icon">{{ domainNode.isProbe ? '⚠️' : '🌐' }}</span>
           <span class="domain-name" :title="domainNode.domain">{{ domainNode.domain }}</span>
           <span v-if="domainNode.hasMocked" class="badge-mock-sm">MOCK</span>
           <span class="domain-count">({{ domainNode.children.length }})</span>

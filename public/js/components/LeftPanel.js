@@ -34,21 +34,31 @@ export default {
           >✕</button>
         </div>
 
-        <div class="tree-quick-actions" v-if="store.viewMode === 'structure'">
+        <div class="tree-quick-actions">
           <button 
-            class="icon-btn" 
-            @click="actions.expandAllDomains" 
-            title="展开所有域名目录"
+            class="icon-btn probe-toggle-btn" 
+            :class="{ active: store.hideDirectProbes }"
+            @click="actions.toggleHideProbes" 
+            :title="store.hideDirectProbes ? '🛡️ 当前已过滤隐藏无 Host 探测(503)噪音，点击查看全部' : '🛡️ 当前显示所有无 Host 探测，点击一键过滤隐藏'"
           >
-            ➕
+            🛡️
           </button>
-          <button 
-            class="icon-btn" 
-            @click="actions.collapseAllDomains" 
-            title="折叠所有域名目录"
-          >
-            ➖
-          </button>
+          <template v-if="store.viewMode === 'structure'">
+            <button 
+              class="icon-btn" 
+              @click="actions.expandAllDomains" 
+              title="展开所有域名目录"
+            >
+              ➕
+            </button>
+            <button 
+              class="icon-btn" 
+              @click="actions.collapseAllDomains" 
+              title="折叠所有域名目录"
+            >
+              ➖
+            </button>
+          </template>
         </div>
       </div>
 
