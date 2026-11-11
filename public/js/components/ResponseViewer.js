@@ -72,6 +72,12 @@ export default {
              props.request.bodyType === 'protobuf';
     });
 
+    const isJs = computed(() => {
+      const ct = contentType.value;
+      const u = (props.request.url || '').toLowerCase();
+      return ct.includes('javascript') || ct.includes('ecmascript') || /\.(js|mjs)(\?|$)/i.test(u);
+    });
+
     const jsonInfo = computed(() => {
       return formatJson(props.request.responseBody);
     });
@@ -212,6 +218,7 @@ export default {
       isAudio,
       isHtml,
       isProtobuf,
+      isJs,
       isJson,
       jsonInfo,
       lines,
@@ -293,14 +300,14 @@ export default {
             📝 HTML 源码
           </button>
 
-          <!-- JSON / Protobuf 视图 Tab -->
+          <!-- JSON / Protobuf / JS / 文本视图 Tab -->
           <button 
             v-if="!isImage && !isVideo && !isAudio && !isHtml"
             class="sub-tab-btn" 
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            {{ isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text' }}
+            {{ isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text')) }}
           </button>
 
           <button 
@@ -455,6 +462,15 @@ export default {
               <span><b>Protobuf 自动反编译已生效</b>：基于 Wire Format 还原字段编号与嵌套结构，可直接复制或用于 Map Local Mock</span>
             </div>
             <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">application/x-protobuf</span>
+          </div>
+
+          <!-- 304 协商缓存文本自动补齐提示条 -->
+          <div v-if="is304 && !isProtobuf && request.responseBody" style="padding: 6px 14px; background: rgba(59, 130, 246, 0.12); border-bottom: 1px solid rgba(59, 130, 246, 0.25); font-size: 11px; color: #60a5fa; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>⚡</span>
+              <span><b>HTTP 304 协商缓存</b>：服务器未下发正文，抓包工具已自动拉取/复用并补齐完整{{ isJs ? ' JavaScript 脚本' : '源码' }}</span>
+            </div>
+            <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">{{ contentType || 'text/plain' }}</span>
           </div>
 
           <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">

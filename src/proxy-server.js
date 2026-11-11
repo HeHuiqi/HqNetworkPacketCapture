@@ -334,7 +334,20 @@ class ProxyServer extends EventEmitter {
             }
           }
         } else {
-          tx.responseBody = '';
+          // 若 buffer 为空但状态码为 304，自动尝试从历史记录关联同 URL 之前的 200 数据补全
+          if (Number(tx.statusCode) === 304) {
+            tx.is304 = true;
+            const hist = this.findHistoricalBufferByUrl(tx.url);
+            if (hist && hist.buffer) {
+              this.setBodyBuffer(tx.id, hist.buffer);
+              tx.responseBody = hist.buffer.toString('utf8');
+              tx.isCachedFromHistory = true;
+            } else {
+              tx.responseBody = '';
+            }
+          } else {
+            tx.responseBody = '';
+          }
         }
       } catch (err) {
         tx.responseBody = `[无法读取响应体: ${err.message}]`;

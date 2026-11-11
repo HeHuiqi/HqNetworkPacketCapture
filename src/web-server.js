@@ -384,13 +384,16 @@ class WebServer {
       let buffer = proxyServer.getBodyBuffer(tx.id);
 
       // 智能回源与历史缓存补齐：当命中 304 缓存或 Body 未捕获时，自动复用同 URL 历史 200 缓存或回源拉取
-      if (!buffer && (Number(tx.statusCode) === 304 || tx.isImage || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp|heic|mp4|mov|mp3)(\?|$)/i.test(tx.url || ''))) {
+      if (!buffer && (Number(tx.statusCode) === 304 || tx.isImage || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp|heic|mp4|mov|mp3|js|mjs|css|json|txt|xml)(\?|$)/i.test(tx.url || ''))) {
         const hist = proxyServer.findHistoricalBufferByUrl(tx.url);
         if (hist) {
           buffer = hist.buffer;
           proxyServer.setBodyBuffer(tx.id, buffer);
           if (hist.contentType && (!contentType || contentType === 'application/octet-stream')) {
             contentType = hist.contentType;
+          }
+          if (!tx.responseBody) {
+            tx.responseBody = buffer.toString('utf8');
           }
           tx.cachedFromHistory = true;
         } else if (tx.url && (tx.url.startsWith('http://') || tx.url.startsWith('https://'))) {
@@ -401,6 +404,9 @@ class WebServer {
               proxyServer.setBodyBuffer(tx.id, buffer);
               if (fetched.contentType) {
                 contentType = fetched.contentType;
+              }
+              if (!tx.responseBody) {
+                tx.responseBody = buffer.toString('utf8');
               }
               tx.fetchedFallback = true;
             }
