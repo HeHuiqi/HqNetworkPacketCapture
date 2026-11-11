@@ -345,16 +345,38 @@ export default {
       nextTick(syncScroll);
     };
 
-    // 复制内容
+    // 复制内容 (支持局域网 HTTP 安全降级)
     const copyContent = async () => {
-      try {
-        await navigator.clipboard.writeText(rawText.value || '');
+      const str = rawText.value || '';
+      let success = false;
+      if (navigator?.clipboard?.writeText && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(str);
+          success = true;
+        } catch (_) {}
+      }
+      if (!success) {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = str;
+          textarea.style.position = 'fixed';
+          textarea.style.top = '-9999px';
+          textarea.style.left = '-9999px';
+          textarea.style.opacity = '0';
+          textarea.setAttribute('readonly', '');
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          success = document.execCommand('copy');
+          document.body.removeChild(textarea);
+        } catch (_) {}
+      }
+
+      if (success) {
         copiedTooltip.value = true;
         setTimeout(() => {
           copiedTooltip.value = false;
         }, 1500);
-      } catch (e) {
-        console.error('Clipboard copy failed:', e);
       }
     };
 

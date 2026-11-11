@@ -135,26 +135,46 @@ pub fn run() {
                 }
             }
 
-            // Wait until Web Server is up on port 8899 (max 10 seconds)
-            log::info!("Waiting for web console to become ready on 127.0.0.1:8899...");
+            // Wait until Web Server is up on port 8899..8920 (max 10 seconds)
+            log::info!("Waiting for web console to become ready on 127.0.0.1 (ports 8899~8920)...");
             let start = Instant::now();
             let timeout = Duration::from_secs(10);
-            let mut ready = false;
+            let mut detected_port: Option<u16> = None;
 
             while start.elapsed() < timeout {
-                if TcpStream::connect("127.0.0.1:8899").is_ok() {
-                    ready = true;
-                    log::info!(
-                        "Web console ready in {}ms!",
-                        start.elapsed().as_millis()
-                    );
+                // 优先检查 8899，若被占用则依次检查自增端口
+                for port in 8899..=8920 {
+                    if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+                        detected_port = Some(port);
+                        log::info!(
+                            "Web console detected ready on port {} in {}ms!",
+                            port,
+                            start.elapsed().as_millis()
+                        );
+                        break;
+                    }
+                }
+                if detected_port.is_some() {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
 
-            if !ready {
-                log::warn!("Timeout waiting for port 8899, proceeding anyway");
+            match detected_port {
+                Some(port) => {
+                    if port != 8899 {
+                        log::info!("Default port 8899 was occupied; redirecting Tauri window to actual port {}", port);
+                        if let Some(main_win) = app.get_webview_window("main") {
+                            let target_url = format!("http://localhost:{}", port);
+                            if let Ok(parsed_url) = target_url.parse() {
+                                let _ = main_win.navigate(parsed_url);
+                            }
+                        }
+                    }
+                }
+                None => {
+                    log::warn!("Timeout waiting for web console port, proceeding anyway");
+                }
             }
 
             Ok(())

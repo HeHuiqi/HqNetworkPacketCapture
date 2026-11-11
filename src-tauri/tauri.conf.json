@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "HQ Network Debugger & MapLocal Mock",
         "width": 1320,
         "height": 860,

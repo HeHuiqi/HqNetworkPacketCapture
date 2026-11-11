@@ -1,10 +1,12 @@
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const proxyServer = require('./src/proxy-server');
+const socksServer = require('./src/socks-server');
 const webServer = require('./src/web-server');
 const systemProxyManager = require('./src/system-proxy-manager');
 
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '8888', 10);
+const SOCKS_PORT = parseInt(process.env.SOCKS_PORT || '8889', 10);
 const WEB_PORT = parseInt(process.env.WEB_PORT || '8899', 10);
 
 let mainWindow = null;
@@ -125,6 +127,7 @@ async function shutdown() {
   console.log('[Electron] 正在关闭代理服务并还原系统代理...');
   try {
     systemProxyManager.restore();
+    await socksServer.stop();
     await proxyServer.stop();
     webServer.stop();
   } catch (err) {
@@ -137,9 +140,11 @@ app.whenReady().then(async () => {
     console.log('[Electron] 正在启动后端服务...');
     // 1. 启动代理内核（支持端口占用自动递增）
     const actualProxyPort = await proxyServer.start(PROXY_PORT);
-    // 2. 启动 Web 控制台（支持端口占用自动递增）
+    // 2. 启动 SOCKS5 代理网桥（支持端口占用自动递增）
+    const actualSocksPort = await socksServer.start(SOCKS_PORT, actualProxyPort);
+    // 3. 启动 Web 控制台（支持端口占用自动递增）
     const actualWebPort = await webServer.start(WEB_PORT);
-    // 3. 创建主窗口加载实际 Web 端口
+    // 4. 创建主窗口加载实际 Web 端口
     await createWindow();
   } catch (err) {
     console.error('[Electron] 启动失败:', err);

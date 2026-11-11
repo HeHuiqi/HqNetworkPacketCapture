@@ -6,6 +6,10 @@ const ruleManager = require('./rule-manager');
 const settingsManager = require('./settings-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 
+// 报文安全上限限制（防止超大请求/响应体引发 Node 内存压力与 DoS）
+const MAX_BODY_TEXT_LENGTH = 1024 * 1024; // 1MB 文本安全截断上限
+const MAX_BUFFER_CACHE_SIZE = 50 * 1024 * 1024; // 50MB 二进制流缓存上限
+
 /**
  * 提取并还原客户端请求的原始完整 URL
  * 当 App 或网络层（如 HttpDNS、网关调度、VPN Fake-IP 或直连代理）将请求目标重写为 IP 或代理端口时，
@@ -60,10 +64,15 @@ class ProxyServer extends EventEmitter {
     this.previewBuffers = new Map(); // id -> Buffer (LRU cache for converted preview e.g. HEIC -> JPEG)
     this.maxBufferCount = 200;
     this.isRecording = true;
+    this._isApplyingRules = false;
+    this._pendingApplyRules = false;
   }
 
   setBodyBuffer(id, buffer) {
     if (!buffer) return;
+    if (this.bodyBuffers.has(id)) {
+      this.bodyBuffers.delete(id);
+    }
     this.bodyBuffers.set(id, buffer);
     if (this.bodyBuffers.size > this.maxBufferCount) {
       const oldestKey = this.bodyBuffers.keys().next().value;
@@ -77,6 +86,9 @@ class ProxyServer extends EventEmitter {
 
   setPreviewBuffer(id, buffer) {
     if (!buffer) return;
+    if (this.previewBuffers.has(id)) {
+      this.previewBuffers.delete(id);
+    }
     this.previewBuffers.set(id, buffer);
     if (this.previewBuffers.size > this.maxBufferCount) {
       const oldestKey = this.previewBuffers.keys().next().value;
@@ -165,6 +177,8 @@ class ProxyServer extends EventEmitter {
       if (this.history.length > this.maxHistory) {
         const removedId = this.history.pop();
         this.transactions.delete(removedId);
+        this.bodyBuffers.delete(removedId);
+        this.previewBuffers.delete(removedId);
       }
     }
     return tx;
@@ -194,7 +208,12 @@ class ProxyServer extends EventEmitter {
 
       try {
         const bodyText = await req.body.getText();
-        tx.requestBody = bodyText || '';
+        if (bodyText && bodyText.length > MAX_BODY_TEXT_LENGTH) {
+          tx.requestBody = bodyText.slice(0, MAX_BODY_TEXT_LENGTH) + `\n\n... [请求体过大已截断，仅展示前 1MB，总大小 ${bodyText.length} 字符] ...`;
+          tx.requestBodyTruncated = true;
+        } else {
+          tx.requestBody = bodyText || '';
+        }
       } catch (err) {
         tx.requestBody = `[无法读取请求体: ${err.message}]`;
       }
@@ -230,7 +249,7 @@ class ProxyServer extends EventEmitter {
         const buffer = await res.body.getDecodedBuffer();
         if (buffer && buffer.length > 0) {
           // 缓存 50MB 以内的二进制 Buffer，供网页端图片渲染、视频播放或原文件下载
-          if (buffer.length <= 50 * 1024 * 1024) {
+          if (buffer.length <= MAX_BUFFER_CACHE_SIZE) {
             this.setBodyBuffer(tx.id, buffer);
           }
 
@@ -246,11 +265,7 @@ class ProxyServer extends EventEmitter {
               const jpegBuffer = await convertHeicToJpeg(buffer);
               this.setPreviewBuffer(tx.id, jpegBuffer);
               tx.hasHeicPreview = true;
-              // 小于 1MB 的 JPEG 预览直接 Base64 秒渲染
-              if (jpegBuffer.length <= 1024 * 1024) {
-                tx.imageDataUrl = `data:image/jpeg;base64,${jpegBuffer.toString('base64')}`;
-              }
-              tx.responseBody = `[HEIC 高清图像: 大小 ${buffer.length} 字节 (已自动转码生成 JPEG 预览)]`;
+              tx.responseBody = `[HEIC 高清图像: 大小 ${buffer.length} 字节 (已转码 JPEG 预览)]`;
             } catch (convErr) {
               console.warn('[ProxyServer] HEIC 转换失败:', convErr.message);
               tx.hasHeicPreview = false;
@@ -259,11 +274,6 @@ class ProxyServer extends EventEmitter {
           } else if (isImage) {
             tx.isImage = true;
             tx.bodyType = 'image';
-            // 小于 512KB 直接生成 Base64 DataURL，零延迟秒渲染
-            if (buffer.length <= 512 * 1024) {
-              const mime = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/png';
-              tx.imageDataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
-            }
             tx.responseBody = `[图片内容: ${contentType || 'image'}, 大小: ${buffer.length} 字节]`;
           } else if (isVideo) {
             tx.isVideo = true;
@@ -273,17 +283,25 @@ class ProxyServer extends EventEmitter {
             tx.isAudio = true;
             tx.bodyType = 'audio';
             tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${buffer.length} 字节]`;
-          } else if (isHtml) {
-            tx.isHtml = true;
-            tx.bodyType = 'html';
-            tx.responseBody = buffer.toString('utf8');
-          } else if (isJson) {
-            tx.isJson = true;
-            tx.bodyType = 'json';
-            tx.responseBody = buffer.toString('utf8');
           } else {
-            tx.responseBody = buffer.toString('utf8');
-            tx.bodyType = 'text';
+            const isTruncated = buffer.length > MAX_BODY_TEXT_LENGTH;
+            const sliceLen = isTruncated ? MAX_BODY_TEXT_LENGTH : buffer.length;
+            const text = buffer.subarray(0, sliceLen).toString('utf8');
+            if (isTruncated) {
+              tx.responseBody = text + `\n\n... [响应体过大已截断，仅展示前 1MB，总大小 ${buffer.length} 字节，可通过原始数据接口获取] ...`;
+              tx.bodyTruncated = true;
+            } else {
+              tx.responseBody = text;
+            }
+            if (isHtml) {
+              tx.isHtml = true;
+              tx.bodyType = 'html';
+            } else if (isJson) {
+              tx.isJson = true;
+              tx.bodyType = 'json';
+            } else {
+              tx.bodyType = 'text';
+            }
           }
         } else {
           tx.responseBody = '';
@@ -300,6 +318,9 @@ class ProxyServer extends EventEmitter {
       if (!this.isRecording) return;
 
       const tx = this._getOrCreateTransaction(req.id);
+      // 若该请求已经正常完成响应，直接忽略后续连接关闭引发的 abort，防止覆盖已完成的响应数据
+      if (tx.completed) return;
+
       tx.statusCode = tx.statusCode || 502;
       tx.statusMessage = req.error?.message || 'Socket Hang Up / Aborted';
       tx.responseTime = Date.now();
@@ -313,6 +334,12 @@ class ProxyServer extends EventEmitter {
 
   async applyRules() {
     if (!this.server) return;
+    // 互斥锁保护：若当前已有规则重载任务在执行，标记排队并直接返回，避免多次并发 reset 导致在途网络请求崩溃
+    if (this._isApplyingRules) {
+      this._pendingApplyRules = true;
+      return;
+    }
+    this._isApplyingRules = true;
 
     try {
       await this.server.reset();
@@ -322,19 +349,33 @@ class ProxyServer extends EventEmitter {
       const rules = ruleManager.getRules();
       const activeRules = rules.filter(r => r.enabled);
 
+      let cachedPemContent = null;
+      let cachedCrtContent = null;
+      const getPemContent = () => {
+        if (!cachedPemContent) {
+          cachedPemContent = fs.readFileSync(CA_CERT_PATH);
+        }
+        return cachedPemContent;
+      };
+      const getCrtContent = () => {
+        if (!cachedCrtContent) {
+          cachedCrtContent = fs.readFileSync(CA_CRT_PATH);
+        }
+        return cachedCrtContent;
+      };
+
       // 内置根证书下载路由（确保手机挂上代理后无论是访问 http://<IP>:8899/ca.pem 还是 http://hq.cert/ca.pem 都能直接秒下证书）
       await this.server.forGet().matching((req) => {
         const cleanPath = (req.path || '').split('?')[0];
         return cleanPath === '/ca.pem' || cleanPath === '/ca.cer';
       }).always().thenCallback(() => {
-        const certContent = fs.readFileSync(CA_CERT_PATH);
         return {
           statusCode: 200,
           headers: {
             'content-type': 'application/x-x509-ca-cert',
             'content-disposition': 'inline; filename="HQ-Network-Debug-CA.cer"'
           },
-          body: certContent
+          body: getPemContent()
         };
       });
 
@@ -342,14 +383,13 @@ class ProxyServer extends EventEmitter {
         const cleanPath = (req.path || '').split('?')[0];
         return cleanPath === '/ca.crt';
       }).always().thenCallback(() => {
-        const crtContent = fs.readFileSync(CA_CRT_PATH);
         return {
           statusCode: 200,
           headers: {
             'content-type': 'application/x-x509-ca-cert',
             'content-disposition': 'attachment; filename="hq-ca.crt"'
           },
-          body: crtContent
+          body: getCrtContent()
         };
       });
 
@@ -358,14 +398,13 @@ class ProxyServer extends EventEmitter {
         return cleanPath === '/ca.0' || /^\/[0-9a-f]{8}\.0$/i.test(cleanPath);
       }).always().thenCallback(() => {
         const filename = getAndroidSystemCertFilename();
-        const certContent = fs.readFileSync(CA_CERT_PATH);
         return {
           statusCode: 200,
           headers: {
             'content-type': 'application/octet-stream',
             'content-disposition': `attachment; filename="${filename}"`
           },
-          body: certContent
+          body: getPemContent()
         };
       });
 
@@ -392,6 +431,15 @@ class ProxyServer extends EventEmitter {
       console.log(`[ProxyServer] 已生效 ${activeRules.length} 条 Mock 规则，其余请求正常透传${upstreamProxyUrl ? ' (走上游代理: ' + upstreamProxyUrl + ')' : ''}`);
     } catch (err) {
       console.error('[ProxyServer] 应用规则时出错:', err);
+    } finally {
+      this._isApplyingRules = false;
+      if (this._pendingApplyRules) {
+        this._pendingApplyRules = false;
+        // 异步触发排队的规则重载，避免递归与调用栈溢出
+        setImmediate(() => {
+          this.applyRules().catch(e => console.error('[ProxyServer] 执行排队应用规则时出错:', e));
+        });
+      }
     }
   }
 
@@ -510,7 +558,7 @@ class ProxyServer extends EventEmitter {
     }
 
     await builder.thenReply(
-      rule.response.statusCode || 200,
+      rule.response.statusCode ?? 200,
       rule.response.body || '',
       headers
     );

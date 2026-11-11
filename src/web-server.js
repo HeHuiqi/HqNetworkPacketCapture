@@ -35,9 +35,54 @@ class WebServer {
     return ips;
   }
 
-  start(port = 8899) {
+  /**
+   * 校验请求来源 Origin 是否受信任（严格限定本机回环与本机明确的网卡 IP，彻底防范局域网与跨站 CSRF 提权）
+   */
+  _isAllowedOrigin(originStr) {
+    if (!originStr) return true;
+    try {
+      const u = new URL(originStr);
+      const host = u.hostname.toLowerCase();
+      // 允许本机回环地址
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+        return true;
+      }
+      // 仅允许当前设备明确分配的本机局域网网卡 IP（拒绝局域网其他非本机 IP 跨站访问）
+      const lanIps = this.getLanIps().map(item => item.ip);
+      if (lanIps.includes(host)) {
+        return true;
+      }
+      // 仅允许安全受控的原生内嵌容器协议 (tauri, vscode-webview)，杜绝本地恶意 file: 网页跨域调用
+      if (u.protocol === 'tauri:' || u.protocol === 'vscode-webview:') {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  start(port = 8899, host = process.env.WEB_HOST || '0.0.0.0') {
     return new Promise((resolve, reject) => {
       this.app.use(express.json({ limit: '10mb' }));
+
+      // 安全中间件：对 /api 路径做 CSRF / 恶意跨站 Origin 防护 (带 Referer try-catch 容错)
+      this.app.use('/api', (req, res, next) => {
+        let origin = req.headers.origin || null;
+        if (!origin && req.headers.referer) {
+          try {
+            origin = new URL(req.headers.referer).origin;
+          } catch (_) {
+            origin = null;
+          }
+        }
+        if (origin && !this._isAllowedOrigin(origin)) {
+          console.warn(`[WebServer] 拦截未授权的跨站 API 请求: Origin=${origin}, Method=${req.method}, Path=${req.originalUrl}`);
+          return res.status(403).json({ error: 'Forbidden: Cross-Origin Request Blocked' });
+        }
+        next();
+      });
+
       this.app.use(express.static(path.resolve(__dirname, '../public')));
       this.app.use('/apks', express.static(path.resolve(__dirname, '../apks')));
 
@@ -63,14 +108,18 @@ class WebServer {
           }
         });
 
-        this.server.listen(this.port, '0.0.0.0', () => {
+        this.server.listen(this.port, host, () => {
           this._setupWebSocket();
           const primaryIp = this.getLanIps()[0]?.ip || '127.0.0.1';
           if (currentPort !== port) {
             console.warn(`[WebServer] 默认 Web 端口 ${port} 已被占用，已自动递增切换至空闲端口: ${this.port}`);
           }
           console.log(`[WebServer] Web 控制台已启动: http://localhost:${this.port}`);
-          console.log(`[WebServer] 局域网访问地址: http://${primaryIp}:${this.port}`);
+          if (host === '0.0.0.0') {
+            console.log(`[WebServer] 局域网访问地址: http://${primaryIp}:${this.port}`);
+          } else {
+            console.log(`[WebServer] 监听受限于本地地址: http://${host}:${this.port} (已开启本地回环保护)`);
+          }
           resolve(this.port);
         });
       };
@@ -80,11 +129,27 @@ class WebServer {
   }
 
   _setupRoutes() {
-    // 证书下载接口（使用 fs.readFileSync 读取，避免 Express sendFile 因 ~/.hqnetwork 隐藏目录拦截报 404）
+    // 内存缓存证书二进制 Buffer，避免重复从磁盘同步读取
+    let cachedPemContent = null;
+    let cachedCrtContent = null;
+    const getPem = () => {
+      if (!cachedPemContent) {
+        cachedPemContent = fs.readFileSync(CA_CERT_PATH);
+      }
+      return cachedPemContent;
+    };
+    const getCrt = () => {
+      if (!cachedCrtContent) {
+        cachedCrtContent = fs.readFileSync(CA_CRT_PATH);
+      }
+      return cachedCrtContent;
+    };
+
+    // 证书下载接口（使用内存 Buffer 响应，避免 Express sendFile 因 ~/.hqnetwork 隐藏目录拦截报 404）
     // iOS 专用：使用 inline + .cer 文件名，触发 iOS Safari 系统级“下载配置描述文件”弹窗
     const serveIosCert = (req, res) => {
       try {
-        const certContent = fs.readFileSync(CA_CERT_PATH);
+        const certContent = getPem();
         res.setHeader('Content-Type', 'application/x-x509-ca-cert');
         if (req.query.download === '1') {
           res.setHeader('Content-Disposition', 'attachment; filename="hq-ca.pem"');
@@ -103,7 +168,7 @@ class WebServer {
     // Android 专用：触发 .crt 证书附件下载，便于 Android 系统“从存储设备安装 CA 证书”识别
     this.app.get('/ca.crt', (req, res) => {
       try {
-        const crtContent = fs.readFileSync(CA_CRT_PATH);
+        const crtContent = getCrt();
         res.setHeader('Content-Type', 'application/x-x509-ca-cert');
         res.setHeader('Content-Disposition', 'attachment; filename="hq-ca.crt"');
         res.send(crtContent);
@@ -131,7 +196,7 @@ class WebServer {
     const serveAndroidSystemCert = (req, res) => {
       try {
         const filename = getAndroidSystemCertFilename();
-        const certContent = fs.readFileSync(CA_CERT_PATH);
+        const certContent = getPem();
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(certContent);
@@ -159,12 +224,12 @@ class WebServer {
 
     this.app.post('/api/cert/open-keychain', (req, res) => {
       try {
-        const { execSync } = require('child_process');
+        const { execFileSync } = require('child_process');
         if (process.platform === 'darwin') {
-          execSync(`open "${CA_CERT_PATH}"`);
+          execFileSync('open', [CA_CERT_PATH]);
           res.json({ success: true, message: '已为您打开 Mac 钥匙串访问' });
         } else if (process.platform === 'win32') {
-          execSync(`start "" "${CA_CRT_PATH}"`);
+          execFileSync('cmd.exe', ['/c', 'start', '', CA_CRT_PATH]);
           res.json({ success: true, message: '已为您调起 Windows 证书导入向导' });
         } else {
           res.json({ success: false, message: '请手动下载并安装证书' });
@@ -453,14 +518,40 @@ class WebServer {
   }
 
   _setupWebSocket() {
-    this.wss = new WebSocket.Server({ server: this.server, path: '/ws' });
+    this.wss = new WebSocket.Server({
+      server: this.server,
+      path: '/ws',
+      verifyClient: (info, callback) => {
+        const origin = info.origin || info.req.headers.origin;
+        if (!origin) return callback(true);
+        if (this._isAllowedOrigin(origin)) {
+          return callback(true);
+        }
+        console.warn(`[WebServer] 拦截未授权的跨站 WebSocket 连接: Origin=${origin}`);
+        return callback(false, 403, 'Forbidden Origin');
+      }
+    });
+
+    // 事务广播瘦身：剔除冗余 Base64，超大响应体在实时广播中仅传递前 256KB 摘要，大幅减轻 WS 传输与前端 JSON 解析负担
+    const slimTransactionForBroadcast = (tx) => {
+      if (!tx || typeof tx !== 'object') return tx;
+      const copy = { ...tx };
+      if (copy.imageDataUrl) {
+        delete copy.imageDataUrl;
+      }
+      if (typeof copy.responseBody === 'string' && copy.responseBody.length > 256 * 1024) {
+        copy.responseBody = copy.responseBody.slice(0, 256 * 1024) + `\n\n... [实时广播数据已精简，完整数据可通过详情接口获取] ...`;
+        copy.bodyTruncatedInWs = true;
+      }
+      return copy;
+    };
 
     this.wss.on('connection', (ws) => {
-      // 发送初始同步数据
+      // 发送初始同步数据（经瘦身处理）
       ws.send(JSON.stringify({
         type: 'init',
         data: {
-          requests: proxyServer.getTransactions(100),
+          requests: proxyServer.getTransactions(100).map(slimTransactionForBroadcast),
           rules: ruleManager.getRules(),
           isRecording: proxyServer.isRecording,
           proxyPort: proxyServer.port,
@@ -476,7 +567,8 @@ class WebServer {
     // 广播方法
     const broadcast = (type, data) => {
       if (!this.wss) return;
-      const msg = JSON.stringify({ type, data });
+      const payloadData = (type === 'request' || type === 'response') ? slimTransactionForBroadcast(data) : data;
+      const msg = JSON.stringify({ type, data: payloadData });
       this.wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(msg);

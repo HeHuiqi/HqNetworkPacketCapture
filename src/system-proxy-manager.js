@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 /**
  * 跨平台系统全局代理管理器
@@ -22,11 +22,11 @@ class SystemProxyManager {
   // -------------------------------------------------------------
   _getMacActiveService() {
     try {
-      const out = execSync('route -n get default', { encoding: 'utf8' });
+      const out = execFileSync('route', ['-n', 'get', 'default'], { encoding: 'utf8' });
       const match = out.match(/interface:\s*(\w+)/);
       const iface = match ? match[1].trim() : 'en0';
 
-      const order = execSync('networksetup -listnetworkserviceorder', { encoding: 'utf8' });
+      const order = execFileSync('networksetup', ['-listnetworkserviceorder'], { encoding: 'utf8' });
       const lines = order.split('\n');
       let serviceName = null;
       for (const line of lines) {
@@ -45,7 +45,7 @@ class SystemProxyManager {
   _getMacStatus() {
     const service = this._getMacActiveService();
     try {
-      const out = execSync(`networksetup -getwebproxy "${service}"`, { encoding: 'utf8' });
+      const out = execFileSync('networksetup', ['-getwebproxy', service], { encoding: 'utf8' });
       const enabled = /Enabled:\s*Yes/i.test(out);
       const serverMatch = out.match(/Server:\s*(.+)/);
       const portMatch = out.match(/Port:\s*(\d+)/);
@@ -67,17 +67,25 @@ class SystemProxyManager {
     const service = this._getMacActiveService();
     if (enable) {
       console.log(`[SystemProxy] 正在开启 macOS 系统代理: 服务=${service}, 目标=${host}:${port}`);
-      execSync(`networksetup -setwebproxy "${service}" ${host} ${port}`);
-      execSync(`networksetup -setwebproxystate "${service}" on`);
-      execSync(`networksetup -setsecurewebproxy "${service}" ${host} ${port}`);
-      execSync(`networksetup -setsecurewebproxystate "${service}" on`);
+      execFileSync('networksetup', ['-setwebproxy', service, String(host), String(port)]);
+      execFileSync('networksetup', ['-setwebproxystate', service, 'on']);
+      execFileSync('networksetup', ['-setsecurewebproxy', service, String(host), String(port)]);
+      execFileSync('networksetup', ['-setsecurewebproxystate', service, 'on']);
       try {
-        execSync(`networksetup -setproxybypassdomains "${service}" 127.0.0.1 localhost "*.local" 192.168.0.0/16 10.0.0.0/8`);
+        execFileSync('networksetup', [
+          '-setproxybypassdomains',
+          service,
+          '127.0.0.1',
+          'localhost',
+          '*.local',
+          '192.168.0.0/16',
+          '10.0.0.0/8'
+        ]);
       } catch (e) {}
     } else {
       console.log(`[SystemProxy] 正在关闭 macOS 系统代理: 服务=${service}`);
-      execSync(`networksetup -setwebproxystate "${service}" off`);
-      execSync(`networksetup -setsecurewebproxystate "${service}" off`);
+      execFileSync('networksetup', ['-setwebproxystate', service, 'off']);
+      execFileSync('networksetup', ['-setsecurewebproxystate', service, 'off']);
     }
   }
 
@@ -86,14 +94,14 @@ class SystemProxyManager {
   // -------------------------------------------------------------
   _getWindowsStatus() {
     try {
-      const queryCmd = 'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable';
-      const out = execSync(queryCmd, { encoding: 'utf8' });
+      const regKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
+      const out = execFileSync('reg', ['query', regKey, '/v', 'ProxyEnable'], { encoding: 'utf8' });
       const enabled = /ProxyEnable\s+REG_DWORD\s+0x1/i.test(out);
 
       let server = '';
       let port = 0;
       try {
-        const serverOut = execSync('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyServer', { encoding: 'utf8' });
+        const serverOut = execFileSync('reg', ['query', regKey, '/v', 'ProxyServer'], { encoding: 'utf8' });
         const match = serverOut.match(/ProxyServer\s+REG_SZ\s+(.+)/i);
         if (match) {
           const parts = match[1].trim().split(':');
@@ -119,13 +127,33 @@ class SystemProxyManager {
     const regKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
     if (enable) {
       console.log(`[SystemProxy] 正在开启 Windows 系统代理: 目标=${host}:${port}`);
-      execSync(`reg add "${regKey}" /v ProxyEnable /t REG_DWORD /d 1 /f`);
+      execFileSync('reg', ['add', regKey, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '1', '/f']);
       // Windows 规范格式：区分 http 与 https，并显式配置 ProxyOverride 避免 localhost 与内网回环死锁导致 500 报错
-      execSync(`reg add "${regKey}" /v ProxyServer /t REG_SZ /d "http=${host}:${port};https=${host}:${port}" /f`);
-      execSync(`reg add "${regKey}" /v ProxyOverride /t REG_SZ /d "<local>;localhost;127.*;10.*;192.168.*;172.16.*;" /f`);
+      execFileSync('reg', [
+        'add',
+        regKey,
+        '/v',
+        'ProxyServer',
+        '/t',
+        'REG_SZ',
+        '/d',
+        `http=${host}:${port};https=${host}:${port}`,
+        '/f'
+      ]);
+      execFileSync('reg', [
+        'add',
+        regKey,
+        '/v',
+        'ProxyOverride',
+        '/t',
+        'REG_SZ',
+        '/d',
+        '<local>;localhost;127.*;10.*;192.168.*;172.16.*;',
+        '/f'
+      ]);
     } else {
       console.log(`[SystemProxy] 正在关闭 Windows 系统代理`);
-      execSync(`reg add "${regKey}" /v ProxyEnable /t REG_DWORD /d 0 /f`);
+      execFileSync('reg', ['add', regKey, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
     }
   }
 
@@ -134,14 +162,19 @@ class SystemProxyManager {
   // -------------------------------------------------------------
   _getLinuxStatus() {
     try {
-      const mode = execSync("gsettings get org.gnome.system.proxy mode", { encoding: 'utf8' }).trim();
+      const mode = execFileSync('gsettings', ['get', 'org.gnome.system.proxy', 'mode'], { encoding: 'utf8' }).trim();
       const enabled = mode.includes('manual');
       let server = '';
       let port = 0;
       if (enabled) {
         try {
-          server = execSync("gsettings get org.gnome.system.proxy.http host", { encoding: 'utf8' }).replace(/'/g, '').trim();
-          port = parseInt(execSync("gsettings get org.gnome.system.proxy.http port", { encoding: 'utf8' }).trim(), 10);
+          server = execFileSync('gsettings', ['get', 'org.gnome.system.proxy.http', 'host'], { encoding: 'utf8' })
+            .replace(/'/g, '')
+            .trim();
+          port = parseInt(
+            execFileSync('gsettings', ['get', 'org.gnome.system.proxy.http', 'port'], { encoding: 'utf8' }).trim(),
+            10
+          );
         } catch (e) {}
       }
       return {
@@ -160,14 +193,14 @@ class SystemProxyManager {
   _setLinuxProxy(enable, port = 8888, host = '127.0.0.1') {
     if (enable) {
       console.log(`[SystemProxy] 正在开启 Linux (GNOME) 系统代理: 目标=${host}:${port}`);
-      execSync("gsettings set org.gnome.system.proxy mode 'manual'");
-      execSync(`gsettings set org.gnome.system.proxy.http host '${host}'`);
-      execSync(`gsettings set org.gnome.system.proxy.http port ${port}`);
-      execSync(`gsettings set org.gnome.system.proxy.https host '${host}'`);
-      execSync(`gsettings set org.gnome.system.proxy.https port ${port}`);
+      execFileSync('gsettings', ['set', 'org.gnome.system.proxy', 'mode', 'manual']);
+      execFileSync('gsettings', ['set', 'org.gnome.system.proxy.http', 'host', host]);
+      execFileSync('gsettings', ['set', 'org.gnome.system.proxy.http', 'port', String(port)]);
+      execFileSync('gsettings', ['set', 'org.gnome.system.proxy.https', 'host', host]);
+      execFileSync('gsettings', ['set', 'org.gnome.system.proxy.https', 'port', String(port)]);
     } else {
       console.log(`[SystemProxy] 正在关闭 Linux 系统代理`);
-      execSync("gsettings set org.gnome.system.proxy mode 'none'");
+      execFileSync('gsettings', ['set', 'org.gnome.system.proxy', 'mode', 'none']);
     }
   }
 
@@ -211,7 +244,8 @@ class SystemProxyManager {
 
   toggle(port = 8888, host = '127.0.0.1') {
     const status = this.getStatus();
-    if (status.enabled) {
+    const isTargetMatched = status.enabled && Number(status.port) === Number(port);
+    if (isTargetMatched) {
       this.disable();
       return false;
     } else {

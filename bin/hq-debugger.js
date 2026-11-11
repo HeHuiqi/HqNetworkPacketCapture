@@ -67,6 +67,7 @@ function parseArgs() {
     proxyPort: parseInt(process.env.PROXY_PORT || '8888', 10),
     socksPort: parseInt(process.env.SOCKS_PORT || '8889', 10),
     webPort: parseInt(process.env.WEB_PORT || '8899', 10),
+    host: process.env.WEB_HOST || '0.0.0.0',
     open: true,
     systemProxy: false,
     daemon: false
@@ -80,6 +81,9 @@ function parseArgs() {
       options.command = 'version';
     } else if (arg === '-h' || arg === '--help') {
       options.command = 'help';
+    } else if (arg === '-H' || arg === '--host') {
+      const h = args[++i];
+      if (h) options.host = h;
     } else if (arg === '-p' || arg === '--port' || arg === '--proxy-port') {
       const p = parseInt(args[++i], 10);
       if (!isNaN(p)) options.proxyPort = p;
@@ -123,6 +127,7 @@ HQ Network Debugger & MapLocal Mock Proxy (v${pkg.version})
   -p, --port <port>        指定 HTTP 代理监听端口 (默认: 8888，被占用自动 +1 探测)
   -k, --socks-port <port>   指定 SOCKS5 代理监听端口 (默认: 8889，被占用自动 +1 探测)
   -w, --web-port <port>    指定 Web 控制台端口 (默认: 8899，被占用自动 +1 探测)
+  -H, --host <host>        指定 Web 控制台绑定地址 (默认: 0.0.0.0；若仅限本机可设为 127.0.0.1)
   -s, --system-proxy     自动开启本机系统全局代理 (退出时自动还原)
   -o, --open             启动后在默认浏览器自动打开控制台 (默认开启)
   --no-open              不自动弹出浏览器窗口
@@ -221,7 +226,7 @@ async function startService(opts) {
     const actualSocksPort = await socksServer.start(opts.socksPort, actualProxyPort);
 
     // 3. 启动 Web 控制台与 API 服务 (支持被占用自动 +1 探测)
-    const actualWebPort = await webServer.start(opts.webPort);
+    const actualWebPort = await webServer.start(opts.webPort, opts.host);
 
     // 4. 是否开启本机系统代理
     if (opts.systemProxy) {

@@ -64,9 +64,9 @@ class RuleManager extends EventEmitter {
         pattern: ruleData.match?.pattern || ''
       },
       response: {
-        statusCode: parseInt(ruleData.response?.statusCode || 200, 10),
+        statusCode: isNaN(parseInt(ruleData.response?.statusCode, 10)) ? 200 : parseInt(ruleData.response.statusCode, 10),
         statusMessage: ruleData.response?.statusMessage || 'OK',
-        delay: parseInt(ruleData.response?.delay || 0, 10),
+        delay: Math.max(0, parseInt(ruleData.response?.delay, 10) || 0),
         headers: ruleData.response?.headers || {
           'content-type': 'application/json; charset=utf-8'
         },
@@ -104,11 +104,12 @@ class RuleManager extends EventEmitter {
       }
     };
 
-    if (updatedFields.response?.statusCode) {
-      updated.response.statusCode = parseInt(updatedFields.response.statusCode, 10);
+    if (updatedFields.response?.statusCode !== undefined) {
+      const parsed = parseInt(updatedFields.response.statusCode, 10);
+      updated.response.statusCode = isNaN(parsed) ? 200 : parsed;
     }
     if (updatedFields.response?.delay !== undefined) {
-      updated.response.delay = parseInt(updatedFields.response.delay, 10);
+      updated.response.delay = Math.max(0, parseInt(updatedFields.response.delay, 10) || 0);
     }
 
     this.rules[index] = updated;

@@ -1,6 +1,6 @@
 import { reactive, ref, computed } from '/vendor/vue.esm-browser.js';
 import { buildDomainTree } from './utils/treeHelper.js';
-import { formatJson } from './utils/formatters.js';
+import { formatJson, cleanMockResponseHeaders } from './utils/formatters.js';
 
 export const store = reactive({
   // 核心数据
@@ -251,18 +251,8 @@ export const actions = {
     // 格式化响应 Body
     const { formatted: formattedBody } = formatJson(target.responseBody);
 
-    // 清理并提取响应 Headers
-    let cleanHeaders = { 'content-type': 'application/json; charset=utf-8' };
-    if (target.responseHeaders) {
-      const h = {};
-      for (const [k, v] of Object.entries(target.responseHeaders)) {
-        const lower = k.toLowerCase();
-        if (!['content-length', 'transfer-encoding', 'content-encoding', 'connection', 'x-mocked-by', 'x-mock-rule-id'].includes(lower)) {
-          h[k] = v;
-        }
-      }
-      if (Object.keys(h).length > 0) cleanHeaders = h;
-    }
+    // 清理并提取响应 Headers（过滤传输层及注入标记头）
+    const cleanHeaders = cleanMockResponseHeaders(target.responseHeaders);
 
     let pathOnly = target.path || '';
     try {
@@ -289,14 +279,41 @@ export const actions = {
     store.modals.mock = true;
   },
 
-  // 复制剪贴板
-  copy(text, msg = '已复制到剪贴板') {
-    navigator.clipboard.writeText(text).then(() => {
-      actions.showToast(msg, 'success');
-    }).catch(() => {
-      actions.showToast('复制失败，请手动选取', 'error');
-    });
+  // 复制剪贴板 (具备本地安全上下文 + 局域网 HTTP 降级 fallback 兜底)
+  async copy(text, msg = '已复制到剪贴板') {
     actions.closeContextMenu();
+    const str = String(text ?? '');
+
+    // 1. 尝试现代异步 Clipboard API (需 Secure Context: localhost 或 https)
+    if (navigator?.clipboard?.writeText && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(str);
+        actions.showToast(msg, 'success');
+        return;
+      } catch (_) {}
+    }
+
+    // 2. 传统通用降级策略：动态隐藏 textarea + document.execCommand('copy')
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = str;
+      textarea.style.position = 'fixed';
+      textarea.style.top = '-9999px';
+      textarea.style.left = '-9999px';
+      textarea.style.opacity = '0';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (success) {
+        actions.showToast(msg, 'success');
+        return;
+      }
+    } catch (_) {}
+
+    actions.showToast('复制失败，请手动选取文本', 'error');
   },
 
   // 清空历史记录

@@ -59,6 +59,7 @@ const { getAndroidSystemCertFilename } = require('./src/cert-manager');
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '8888', 10);
 const SOCKS_PORT = parseInt(process.env.SOCKS_PORT || '8889', 10);
 const WEB_PORT = parseInt(process.env.WEB_PORT || '8899', 10);
+const WEB_HOST = process.env.WEB_HOST || '0.0.0.0';
 
 async function main() {
   console.log('=====================================================');
@@ -73,7 +74,7 @@ async function main() {
     const actualSocksPort = await socksServer.start(SOCKS_PORT, actualProxyPort);
 
     // 3. 启动 Web 控制台与管理服务 (端口被占用时自动递增)
-    const actualWebPort = await webServer.start(WEB_PORT);
+    const actualWebPort = await webServer.start(WEB_PORT, WEB_HOST);
 
     const primaryIp = webServer.getLanIps()[0]?.ip || '127.0.0.1';
     const systemCertName = getAndroidSystemCertFilename() || 'ca.0';

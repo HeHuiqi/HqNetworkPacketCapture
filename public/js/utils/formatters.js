@@ -145,3 +145,31 @@ export function getFilenameFromUrl(urlStr, defaultExt = 'bin') {
     return `download.${defaultExt}`;
   }
 }
+
+/**
+ * 清理并规范化用于 Mock 响应的 Headers（过滤传输编码、长度与注入标记头）
+ */
+export function cleanMockResponseHeaders(headers) {
+  const defaultHeaders = { 'content-type': 'application/json; charset=utf-8' };
+  if (!headers || typeof headers !== 'object') return defaultHeaders;
+
+  const ignoredHeaders = new Set([
+    'content-length',
+    'transfer-encoding',
+    'content-encoding',
+    'connection',
+    'keep-alive',
+    'x-mocked-by',
+    'x-mock-rule-id'
+  ]);
+
+  const cleaned = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (!ignoredHeaders.has(k.toLowerCase())) {
+      cleaned[k] = v;
+    }
+  }
+
+  return Object.keys(cleaned).length > 0 ? cleaned : defaultHeaders;
+}
+

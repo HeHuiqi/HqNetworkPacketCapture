@@ -65,10 +65,11 @@ function getAndroidSystemCertFilename() {
   if (cachedSystemCertFilename) return cachedSystemCertFilename;
   try {
     if (fs.existsSync(CA_CERT_PATH)) {
-      const { execSync } = require('child_process');
-      const hash = execSync(`openssl x509 -inform PEM -subject_hash_old -in "${CA_CERT_PATH}" -noout`, {
+      const { execFileSync } = require('child_process');
+      const hash = execFileSync('openssl', ['x509', '-inform', 'PEM', '-subject_hash_old', '-in', CA_CERT_PATH, '-noout'], {
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore']
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 3000
       }).trim().split('\n')[0].trim();
       if (hash && /^[0-9a-f]{8}$/i.test(hash)) {
         cachedSystemCertFilename = `${hash}.0`;

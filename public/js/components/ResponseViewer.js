@@ -356,7 +356,7 @@ export default {
             </div>
             <div class="media-toolbar-actions">
               <button class="btn btn-xs btn-default" @click="openInNewTab">在新标签页播放 ↗</button>
-              <button class="btn btn-xs btn-default" @click="downloadBody">下载视频 ⬇</button>
+              <button class="btn btn-xs btn-default" @click="downloadBody()">下载视频 ⬇</button>
             </div>
           </div>
           <div class="media-canvas video-canvas-dark">
@@ -372,7 +372,7 @@ export default {
               <span v-if="contentLength" class="media-tag">大小: {{ formatBytes(contentLength) }}</span>
             </div>
             <div class="media-toolbar-actions">
-              <button class="btn btn-xs btn-default" @click="downloadBody">下载音频 ⬇</button>
+              <button class="btn btn-xs btn-default" @click="downloadBody()">下载音频 ⬇</button>
             </div>
           </div>
           <div class="media-canvas audio-canvas-dark">
@@ -389,11 +389,12 @@ export default {
             </div>
             <div class="media-toolbar-actions">
               <button class="btn btn-xs btn-default" @click="openInNewTab">在新窗口打开完整页面 ↗</button>
-              <button class="btn btn-xs btn-default" @click="downloadBody">下载 HTML ⬇</button>
+              <button class="btn btn-xs btn-default" @click="downloadBody()">下载 HTML ⬇</button>
             </div>
           </div>
           <div class="html-iframe-wrapper">
-            <iframe :srcdoc="request.responseBody" class="html-preview-frame" sandbox="allow-same-origin allow-scripts"></iframe>
+            <!-- 安全加固：移除 allow-same-origin，阻止不可信响应 HTML 脚本沙箱逃逸提权访问父窗口 DOM/Storage -->
+            <iframe :srcdoc="request.responseBody" class="html-preview-frame" sandbox="allow-scripts"></iframe>
           </div>
         </div>
 

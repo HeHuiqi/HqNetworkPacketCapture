@@ -23,26 +23,31 @@ export default {
     };
 
     const handleMatchTypeChange = (newType) => {
-      if (store.mockForm.fromRulesModal || store.mockForm.id) {
-        if (newType === 'path' && store.mockForm.pattern) {
-          try {
-            if (store.mockForm.pattern.startsWith('http://') || store.mockForm.pattern.startsWith('https://')) {
-              store.mockForm.pattern = new URL(store.mockForm.pattern).pathname;
-            }
-          } catch (e) {}
-        }
+      const currentPattern = (store.mockForm.pattern || '').trim();
+      // 若当前已有内容，且切换到仅路径匹配，温和转换当前输入的 URL，保留用户自定义内容
+      if (newType === 'path' && currentPattern) {
+        try {
+          if (currentPattern.startsWith('http://') || currentPattern.startsWith('https://')) {
+            store.mockForm.pattern = new URL(currentPattern).pathname;
+            return;
+          }
+        } catch (e) {}
         return;
       }
-      const tx = store.contextMenu.target || store.requests.find(r => r.id === store.selectedId);
-      if (!tx) return;
-      if (newType === 'path') {
-        try {
-          store.mockForm.pattern = new URL(tx.url).pathname;
-        } catch (e) {
-          store.mockForm.pattern = tx.path || tx.url;
+
+      // 仅当输入框为空时，才自动从目标请求中回填默认值
+      if (!currentPattern) {
+        const tx = store.contextMenu.target || store.requests.find(r => r.id === store.selectedId);
+        if (!tx) return;
+        if (newType === 'path') {
+          try {
+            store.mockForm.pattern = new URL(tx.url).pathname;
+          } catch (e) {
+            store.mockForm.pattern = tx.path || tx.url;
+          }
+        } else if (newType === 'exact') {
+          store.mockForm.pattern = tx.url;
         }
-      } else if (newType === 'exact') {
-        store.mockForm.pattern = tx.url;
       }
     };
 
