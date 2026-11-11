@@ -102,6 +102,9 @@ export default {
       <div class="panel-section-header">
         <div class="section-badge request-badge">
           <span>📤 请求 (Request)</span>
+          <span v-if="isProtobuf" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
+            📦 Protobuf 已解码
+          </span>
         </div>
 
         <div class="sub-tabs-group">
@@ -153,22 +156,11 @@ export default {
       <div class="panel-content-area">
         <!-- JSON / Raw 文本视图 (支持 JSON 语法着色) -->
         <div v-if="activeSubTab === 'json' || activeSubTab === 'raw'" class="code-editor-view">
-          <!-- Protobuf 自动解码成功提示条 -->
-          <div v-if="isProtobuf && activeSubTab === 'json'" style="padding: 7px 14px; background: rgba(147, 51, 234, 0.12); border-bottom: 1px solid rgba(147, 51, 234, 0.25); font-size: 11px; color: #c084fc; display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span>📦</span>
-              <span><b>Protobuf 请求体自动反编译已生效</b>：基于 Wire Format 还原字段编号与嵌套结构</span>
-            </div>
-            <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">application/x-protobuf</span>
+          <div class="code-line-numbers">
+            <span v-for="n in lines.length" :key="n">{{ n }}</span>
           </div>
-
-          <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
-            <div class="code-line-numbers">
-              <span v-for="n in lines.length" :key="n">{{ n }}</span>
-            </div>
-            <div class="code-lines-content">
-              <pre><code v-html="highlightedContent"></code></pre>
-            </div>
+          <div class="code-lines-content">
+            <pre><code v-html="highlightedContent"></code></pre>
           </div>
         </div>
 

@@ -249,6 +249,12 @@ export default {
           <span v-if="request.isMocked" class="badge-mock-mini" style="margin-left: 6px;">
             ⚡ Map Local 拦截
           </span>
+          <span v-if="isProtobuf" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
+            📦 Protobuf 已解码
+          </span>
+          <span v-if="is304" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); font-weight: normal;" title="HTTP 304 协商缓存 (抓包工具已自动补全数据)">
+            ⚡ 304 缓存补齐
+          </span>
         </div>
 
         <div class="sub-tabs-group">
@@ -453,33 +459,13 @@ export default {
           </div>
         </div>
 
-        <!-- 5. 代码行号高亮视图 (JSON / Raw / HTML 源码) -->
+        <!-- 5. 代码行号高亮视图 (JSON / Raw / HTML 源码) 默认全屏纯净展示解析后的数据 -->
         <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw' || activeSubTab === 'html-source'" class="code-editor-view">
-          <!-- Protobuf 自动解码成功提示条 -->
-          <div v-if="isProtobuf && activeSubTab === 'json'" style="padding: 7px 14px; background: rgba(147, 51, 234, 0.12); border-bottom: 1px solid rgba(147, 51, 234, 0.25); font-size: 11px; color: #c084fc; display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span>📦</span>
-              <span><b>Protobuf 自动反编译已生效</b>：基于 Wire Format 还原字段编号与嵌套结构，可直接复制或用于 Map Local Mock</span>
-            </div>
-            <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">application/x-protobuf</span>
+          <div class="code-line-numbers">
+            <span v-for="n in lines.length" :key="n">{{ n }}</span>
           </div>
-
-          <!-- 304 协商缓存文本自动补齐提示条 -->
-          <div v-if="is304 && !isProtobuf && request.responseBody" style="padding: 6px 14px; background: rgba(59, 130, 246, 0.12); border-bottom: 1px solid rgba(59, 130, 246, 0.25); font-size: 11px; color: #60a5fa; display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span>⚡</span>
-              <span><b>HTTP 304 协商缓存</b>：服务器未下发正文，抓包工具已自动拉取/复用并补齐完整{{ isJs ? ' JavaScript 脚本' : '源码' }}</span>
-            </div>
-            <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">{{ contentType || 'text/plain' }}</span>
-          </div>
-
-          <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
-            <div class="code-line-numbers">
-              <span v-for="n in lines.length" :key="n">{{ n }}</span>
-            </div>
-            <div class="code-lines-content">
-              <pre><code v-html="highlightedContent"></code></pre>
-            </div>
+          <div class="code-lines-content">
+            <pre><code v-html="highlightedContent"></code></pre>
           </div>
         </div>
 
