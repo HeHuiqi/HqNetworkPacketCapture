@@ -6,10 +6,6 @@ const ruleManager = require('./rule-manager');
 const settingsManager = require('./settings-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 
-// 报文安全上限限制（防止超大请求/响应体引发 Node 内存压力与 DoS）
-const MAX_BODY_TEXT_LENGTH = 1024 * 1024; // 1MB 文本安全截断上限
-const MAX_BUFFER_CACHE_SIZE = 50 * 1024 * 1024; // 50MB 二进制流缓存上限
-
 /**
  * 提取并还原客户端请求的原始完整 URL
  * 当 App 或网络层（如 HttpDNS、网关调度、VPN Fake-IP 或直连代理）将请求目标重写为 IP 或代理端口时，
@@ -208,12 +204,7 @@ class ProxyServer extends EventEmitter {
 
       try {
         const bodyText = await req.body.getText();
-        if (bodyText && bodyText.length > MAX_BODY_TEXT_LENGTH) {
-          tx.requestBody = bodyText.slice(0, MAX_BODY_TEXT_LENGTH) + `\n\n... [请求体过大已截断，仅展示前 1MB，总大小 ${bodyText.length} 字符] ...`;
-          tx.requestBodyTruncated = true;
-        } else {
-          tx.requestBody = bodyText || '';
-        }
+        tx.requestBody = bodyText || '';
       } catch (err) {
         tx.requestBody = `[无法读取请求体: ${err.message}]`;
       }
@@ -248,10 +239,8 @@ class ProxyServer extends EventEmitter {
       try {
         const buffer = await res.body.getDecodedBuffer();
         if (buffer && buffer.length > 0) {
-          // 缓存 50MB 以内的二进制 Buffer，供网页端图片渲染、视频播放或原文件下载
-          if (buffer.length <= MAX_BUFFER_CACHE_SIZE) {
-            this.setBodyBuffer(tx.id, buffer);
-          }
+          // 完整缓存二进制 Buffer，供网页端图片渲染、视频播放或原文件下载
+          this.setBodyBuffer(tx.id, buffer);
 
           const isHeic = isUrlHeic || isBufferHeic(buffer);
           const isImage = isHeic || contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(urlLower);
@@ -284,15 +273,7 @@ class ProxyServer extends EventEmitter {
             tx.bodyType = 'audio';
             tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${buffer.length} 字节]`;
           } else {
-            const isTruncated = buffer.length > MAX_BODY_TEXT_LENGTH;
-            const sliceLen = isTruncated ? MAX_BODY_TEXT_LENGTH : buffer.length;
-            const text = buffer.subarray(0, sliceLen).toString('utf8');
-            if (isTruncated) {
-              tx.responseBody = text + `\n\n... [响应体过大已截断，仅展示前 1MB，总大小 ${buffer.length} 字节，可通过原始数据接口获取] ...`;
-              tx.bodyTruncated = true;
-            } else {
-              tx.responseBody = text;
-            }
+            tx.responseBody = buffer.toString('utf8');
             if (isHtml) {
               tx.isHtml = true;
               tx.bodyType = 'html';

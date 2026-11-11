@@ -64,7 +64,8 @@ class WebServer {
 
   start(port = 8899, host = process.env.WEB_HOST || '0.0.0.0') {
     return new Promise((resolve, reject) => {
-      this.app.use(express.json({ limit: '10mb' }));
+      this.app.use(express.json({ limit: '500mb' }));
+      this.app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
       // 安全中间件：对 /api 路径做 CSRF / 恶意跨站 Origin 防护 (带 Referer try-catch 容错)
       this.app.use('/api', (req, res, next) => {
@@ -532,16 +533,12 @@ class WebServer {
       }
     });
 
-    // 事务广播瘦身：剔除冗余 Base64，超大响应体在实时广播中仅传递前 256KB 摘要，大幅减轻 WS 传输与前端 JSON 解析负担
+    // 事务广播瘦身：仅剔除冗余 Base64 图片数据（图片由浏览器通过 HTTP 流式接口直接拉取），请求体与响应体保持完整数据不限制大小
     const slimTransactionForBroadcast = (tx) => {
       if (!tx || typeof tx !== 'object') return tx;
       const copy = { ...tx };
       if (copy.imageDataUrl) {
         delete copy.imageDataUrl;
-      }
-      if (typeof copy.responseBody === 'string' && copy.responseBody.length > 256 * 1024) {
-        copy.responseBody = copy.responseBody.slice(0, 256 * 1024) + `\n\n... [实时广播数据已精简，完整数据可通过详情接口获取] ...`;
-        copy.bodyTruncatedInWs = true;
       }
       return copy;
     };
