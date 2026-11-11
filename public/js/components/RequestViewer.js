@@ -21,6 +21,13 @@ export default {
       return jsonInfo.value.isValidJson;
     });
 
+    const isProtobuf = computed(() => {
+      const ct = (props.request.requestHeaders?.['content-type'] || '').toLowerCase();
+      return !!props.request.requestIsProtobuf || 
+             !!props.request.isProtobuf || 
+             ct.includes('protobuf');
+    });
+
     const lines = computed(() => {
       const text = activeSubTab.value === 'raw' 
         ? (props.request.requestBody || '') 
@@ -77,6 +84,7 @@ export default {
     return {
       activeSubTab,
       jsonInfo,
+      isProtobuf,
       isJson,
       lines,
       highlightedContent,
@@ -102,7 +110,7 @@ export default {
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            JSON Text
+            {{ isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text' }}
           </button>
           <button 
             class="sub-tab-btn" 
@@ -145,11 +153,22 @@ export default {
       <div class="panel-content-area">
         <!-- JSON / Raw 文本视图 (支持 JSON 语法着色) -->
         <div v-if="activeSubTab === 'json' || activeSubTab === 'raw'" class="code-editor-view">
-          <div class="code-line-numbers">
-            <span v-for="n in lines.length" :key="n">{{ n }}</span>
+          <!-- Protobuf 自动解码成功提示条 -->
+          <div v-if="isProtobuf && activeSubTab === 'json'" style="padding: 7px 14px; background: rgba(147, 51, 234, 0.12); border-bottom: 1px solid rgba(147, 51, 234, 0.25); font-size: 11px; color: #c084fc; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>📦</span>
+              <span><b>Protobuf 请求体自动反编译已生效</b>：基于 Wire Format 还原字段编号与嵌套结构</span>
+            </div>
+            <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">application/x-protobuf</span>
           </div>
-          <div class="code-lines-content">
-            <pre><code v-html="highlightedContent"></code></pre>
+
+          <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
+            <div class="code-line-numbers">
+              <span v-for="n in lines.length" :key="n">{{ n }}</span>
+            </div>
+            <div class="code-lines-content">
+              <pre><code v-html="highlightedContent"></code></pre>
+            </div>
           </div>
         </div>
 

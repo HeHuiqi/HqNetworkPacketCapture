@@ -5,6 +5,7 @@ const { getOrCreateCA, getAndroidSystemCertFilename, CA_CERT_PATH, CA_CRT_PATH }
 const ruleManager = require('./rule-manager');
 const settingsManager = require('./settings-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
+const { isProtobufContentType, decodeProtobuf } = require('./protobuf-parser');
 
 /**
  * 提取并还原客户端请求的原始完整 URL
@@ -202,9 +203,30 @@ class ProxyServer extends EventEmitter {
       tx.clientPort = req.remotePort;
       tx.requestHeaders = req.headers;
 
+      const reqContentType = (req.headers['content-type'] || '').toLowerCase();
+      const isReqProtobuf = isProtobufContentType(reqContentType);
+
       try {
-        const bodyText = await req.body.getText();
-        tx.requestBody = bodyText || '';
+        if (isReqProtobuf) {
+          const reqBuffer = await req.body.getDecodedBuffer();
+          if (reqBuffer && reqBuffer.length > 0) {
+            const pbResult = decodeProtobuf(reqBuffer);
+            if (pbResult.success) {
+              tx.requestBody = pbResult.json;
+              tx.requestIsProtobuf = true;
+              tx.isProtobuf = true;
+            } else {
+              tx.requestBody = `[Protobuf 报文: ${reqBuffer.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${reqBuffer.toString('hex')}`;
+              tx.requestIsProtobuf = true;
+            }
+          } else {
+            const bodyText = await req.body.getText();
+            tx.requestBody = bodyText || '';
+          }
+        } else {
+          const bodyText = await req.body.getText();
+          tx.requestBody = bodyText || '';
+        }
       } catch (err) {
         tx.requestBody = `[无法读取请求体: ${err.message}]`;
       }
@@ -230,6 +252,7 @@ class ProxyServer extends EventEmitter {
 
       const contentType = (res.headers['content-type'] || '').toLowerCase();
       const urlLower = (tx.url || '').toLowerCase();
+      const isProtobuf = isProtobufContentType(contentType);
       const isUrlHeic = contentType.includes('image/heic') || contentType.includes('image/heif') || /\.(heic|heif)(\?|$)/i.test(urlLower);
       const isVideo = contentType.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv|avi)(\?|$)/i.test(urlLower);
       const isAudio = contentType.startsWith('audio/') || /\.(mp3|wav|ogg|aac|m4a)(\?|$)/i.test(urlLower);
@@ -245,7 +268,17 @@ class ProxyServer extends EventEmitter {
           const isHeic = isUrlHeic || isBufferHeic(buffer);
           const isImage = isHeic || contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(urlLower);
 
-          if (isHeic) {
+          if (isProtobuf) {
+            tx.isProtobuf = true;
+            tx.bodyType = 'protobuf';
+            const pbResult = decodeProtobuf(buffer);
+            if (pbResult.success) {
+              tx.responseBody = pbResult.json;
+              tx.isJson = true; // 自动激活前端 JSON 树与高亮着色器
+            } else {
+              tx.responseBody = `[Protobuf 响应数据: ${buffer.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${buffer.toString('hex')}`;
+            }
+          } else if (isHeic) {
             tx.isHeic = true;
             tx.isImage = true;
             tx.bodyType = 'image';

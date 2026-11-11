@@ -60,13 +60,20 @@ export default {
       return props.request.isHtml || ct.includes('text/html') || /\.(html?|xhtml)(\?|$)/i.test(u);
     });
 
+    const isProtobuf = computed(() => {
+      const ct = contentType.value;
+      return !!props.request.isProtobuf || 
+             ct.includes('protobuf') || 
+             props.request.bodyType === 'protobuf';
+    });
+
     const jsonInfo = computed(() => {
       return formatJson(props.request.responseBody);
     });
 
     const isJson = computed(() => {
       const ct = contentType.value;
-      return ct.includes('json') || props.request.isJson || jsonInfo.value.isValidJson;
+      return ct.includes('json') || props.request.isJson || isProtobuf.value || jsonInfo.value.isValidJson;
     });
 
     const lines = computed(() => {
@@ -193,6 +200,7 @@ export default {
       isVideo,
       isAudio,
       isHtml,
+      isProtobuf,
       isJson,
       jsonInfo,
       lines,
@@ -271,14 +279,14 @@ export default {
             📝 HTML 源码
           </button>
 
-          <!-- JSON 视图 Tab -->
+          <!-- JSON / Protobuf 视图 Tab -->
           <button 
             v-if="!isImage && !isVideo && !isAudio && !isHtml"
             class="sub-tab-btn" 
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            JSON Text
+            {{ isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text' }}
           </button>
 
           <button 
@@ -400,11 +408,22 @@ export default {
 
         <!-- 5. 代码行号高亮视图 (JSON / Raw / HTML 源码) -->
         <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw' || activeSubTab === 'html-source'" class="code-editor-view">
-          <div class="code-line-numbers">
-            <span v-for="n in lines.length" :key="n">{{ n }}</span>
+          <!-- Protobuf 自动解码成功提示条 -->
+          <div v-if="isProtobuf && activeSubTab === 'json'" style="padding: 7px 14px; background: rgba(147, 51, 234, 0.12); border-bottom: 1px solid rgba(147, 51, 234, 0.25); font-size: 11px; color: #c084fc; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>📦</span>
+              <span><b>Protobuf 自动反编译已生效</b>：基于 Wire Format 还原字段编号与嵌套结构，可直接复制或用于 Map Local Mock</span>
+            </div>
+            <span style="font-size: 10px; opacity: 0.85; font-family: monospace;">application/x-protobuf</span>
           </div>
-          <div class="code-lines-content">
-            <pre><code v-html="highlightedContent"></code></pre>
+
+          <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
+            <div class="code-line-numbers">
+              <span v-for="n in lines.length" :key="n">{{ n }}</span>
+            </div>
+            <div class="code-lines-content">
+              <pre><code v-html="highlightedContent"></code></pre>
+            </div>
           </div>
         </div>
 
