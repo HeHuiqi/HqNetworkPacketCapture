@@ -74,6 +74,19 @@ export default {
              props.request.bodyType === 'protobuf';
     });
 
+    const isEncrypted = computed(() => {
+      const h = props.request.responseHeaders || {};
+      const ct = (h['content-type'] || '').toLowerCase();
+      const body = props.request.responseBody || '';
+      return !!props.request.responseIsAppEncrypted || 
+             !!props.request.isAppEncrypted || 
+             body.includes('应用层加密') || 
+             body.includes('XiaoChuan XCP') || 
+             !!h['x-xc-proto-res'] || 
+             !!h['x-xc-proto-req'] ||
+             (ct.includes('application/xcp') && !jsonInfo.value.isValidJson);
+    });
+
     const isJs = computed(() => {
       const ct = contentType.value;
       const u = (props.request.url || '').toLowerCase();
@@ -233,6 +246,7 @@ export default {
       imgFitMode,
       imgLoadError,
       is304,
+      isEncrypted,
       onImageLoad,
       onImageError,
       downloadBody,
@@ -251,7 +265,10 @@ export default {
           <span v-if="request.isMocked" class="badge-mock-mini" style="margin-left: 6px;">
             ⚡ Map Local 拦截
           </span>
-          <span v-if="isProtobuf" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
+          <span v-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
+            🔒 AES 加密报文
+          </span>
+          <span v-else-if="isProtobuf && jsonInfo.isValidJson" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
             📦 Protobuf 已解码
           </span>
           <span v-if="is304" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); font-weight: normal;" title="HTTP 304 协商缓存 (抓包工具已自动补全数据)">
@@ -315,7 +332,7 @@ export default {
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            {{ isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text')) }}
+            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text'))) }}
           </button>
 
           <button 
@@ -461,13 +478,26 @@ export default {
           </div>
         </div>
 
-        <!-- 5. 代码行号高亮视图 (JSON / Raw / HTML 源码) 默认全屏纯净展示解析后的数据 -->
-        <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw' || activeSubTab === 'html-source'" class="code-editor-view">
-          <div class="code-line-numbers">
-            <span v-for="n in lines.length" :key="n">{{ n }}</span>
+        <!-- 5. 代码行号高亮视图 (JSON / Raw / HTML 源码) -->
+        <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw' || activeSubTab === 'html-source'" class="editor-outer-wrapper">
+          <!-- 应用层加密特别说明条 -->
+          <div v-if="isEncrypted && !jsonInfo.isValidJson && activeSubTab === 'json'" class="crypto-alert-banner">
+            <span class="crypto-alert-icon">🔒</span>
+            <div class="crypto-alert-content">
+              <strong>检测到应用层二次加密（{{ request.responseHeaders?.['x-xc-proto-res'] ? '小川 XCP / AES 动态密文' : 'AES 分组密文' }}）</strong>
+              <div class="crypto-alert-desc">
+                该接口在 HTTPS (TLS) 基础上启用了客户端私有对称加密（基于 <code>x-xc-proto-req</code> 动态协商密钥）。抓包已完成传输层解密，但业务报文在手机端被二次加密。若需分析明文，建议使用 Frida / Xposed Hook 拦截 <code>NetCrypto.decodeAES</code>。
+              </div>
+            </div>
           </div>
-          <div class="code-lines-content">
-            <pre><code v-html="highlightedContent"></code></pre>
+
+          <div class="code-editor-view">
+            <div class="code-line-numbers">
+              <span v-for="n in lines.length" :key="n">{{ n }}</span>
+            </div>
+            <div class="code-lines-content">
+              <pre><code v-html="highlightedContent"></code></pre>
+            </div>
           </div>
         </div>
 

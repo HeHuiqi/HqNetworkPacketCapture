@@ -9,6 +9,35 @@ const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 const { isProtobufContentType, decodeProtobuf } = require('./protobuf-parser');
 
 /**
+ * 检测请求或响应是否属于应用层二次加密协议（如小川在线 XiaoChuan XCP、AES 等）
+ */
+function isAppLayerEncryptedPayload(headers = {}, buffer, isProtobufType = false) {
+  const h = headers || {};
+  const hasXcProto = !!(h['x-xc-proto-req'] || h['X-Xc-Proto-Req'] || h['x-xc-proto-res'] || h['X-Xc-Proto-Res']);
+  const ct = (h['content-type'] || h['Content-Type'] || '').toLowerCase();
+  const isXcp = ct.includes('application/xcp') || ct.includes('/xcp');
+
+  if (hasXcProto || isXcp) {
+    return {
+      encrypted: true,
+      protocol: 'XiaoChuan XCP (AES)',
+      reason: hasXcProto ? '检测到 x-xc-proto 动态密钥协商请求头' : 'Content-Type 声明为 application/xcp 私有加密协议'
+    };
+  }
+
+  // 若 buffer 长度大于 0 且为 16 字节对齐，且具有高熵特征/非可打印字符
+  if (buffer && buffer.length >= 16 && buffer.length % 16 === 0 && isProtobufType) {
+    return {
+      encrypted: true,
+      protocol: 'AES-128/256 分组密文',
+      reason: `数据长度为 ${buffer.length} 字节 (16 字节块对齐)，符合 AES 分组加密特征`
+    };
+  }
+
+  return { encrypted: false };
+}
+
+/**
  * 智能解压缩二进制数据 (支持 gzip, deflate, br)
  * 支持通过 Content-Encoding 头识别与 Magic Bytes 魔数主动探测
  */
@@ -294,7 +323,17 @@ class ProxyServer extends EventEmitter {
               tx.requestBody = pbResult.json;
               tx.requestIsJson = true;
             } else {
-              tx.requestBody = `[Protobuf 报文: ${decompressedReq.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedReq.toString('hex')}`;
+              const cryptoInfo = isAppLayerEncryptedPayload(req.headers, decompressedReq, isReqProtobuf);
+              if (cryptoInfo.encrypted) {
+                tx.requestIsAppEncrypted = true;
+                tx.isAppEncrypted = true;
+                tx.requestBody = `🔒 [应用层加密报文: ${decompressedReq.length} 字节 (${cryptoInfo.protocol})]\n` +
+                  `💡 机制说明: ${cryptoInfo.reason}。该接口在 TLS 之上启用了私有加密，当前内容为密文而非裸 Protobuf 明文。\n` +
+                  `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
+                  `0x${decompressedReq.toString('hex')}`;
+              } else {
+                tx.requestBody = `[Protobuf 报文: ${decompressedReq.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedReq.toString('hex')}`;
+              }
             }
           } else {
             const text = decompressedReq.toString('utf8');
@@ -397,7 +436,17 @@ class ProxyServer extends EventEmitter {
               tx.responseBody = pbResult.json;
               tx.isJson = true; // 自动激活前端 JSON 树与高亮着色器
             } else {
-              tx.responseBody = `[Protobuf 响应数据: ${decompressedBuf.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedBuf.toString('hex')}`;
+              const cryptoInfo = isAppLayerEncryptedPayload(res.headers, decompressedBuf, isProtobuf);
+              if (cryptoInfo.encrypted) {
+                tx.responseIsAppEncrypted = true;
+                tx.isAppEncrypted = true;
+                tx.responseBody = `🔒 [应用层加密响应: ${decompressedBuf.length} 字节 (${cryptoInfo.protocol})]\n` +
+                  `💡 机制说明: ${cryptoInfo.reason}。服务端使用与客户端协商的密钥进行了 AES 加密，返回的是密文流而非未加密数据。\n` +
+                  `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
+                  `0x${decompressedBuf.toString('hex')}`;
+              } else {
+                tx.responseBody = `[Protobuf 响应数据: ${decompressedBuf.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedBuf.toString('hex')}`;
+              }
             }
           } else if (isHeic) {
             tx.isHeic = true;

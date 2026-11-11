@@ -30,6 +30,18 @@ export default {
              ct.includes('/xcp');
     });
 
+    const isEncrypted = computed(() => {
+      const h = props.request.requestHeaders || {};
+      const ct = (h['content-type'] || '').toLowerCase();
+      const body = props.request.requestBody || '';
+      return !!props.request.requestIsAppEncrypted || 
+             !!props.request.isAppEncrypted || 
+             body.includes('应用层加密') || 
+             body.includes('XiaoChuan XCP') || 
+             !!h['x-xc-proto-req'] || 
+             (ct.includes('application/xcp') && !jsonInfo.value.isValidJson);
+    });
+
     const lines = computed(() => {
       const text = activeSubTab.value === 'raw' 
         ? (props.request.requestBody || '') 
@@ -87,6 +99,7 @@ export default {
       activeSubTab,
       jsonInfo,
       isProtobuf,
+      isEncrypted,
       isJson,
       lines,
       highlightedContent,
@@ -104,7 +117,10 @@ export default {
       <div class="panel-section-header">
         <div class="section-badge request-badge">
           <span>📤 请求 (Request)</span>
-          <span v-if="isProtobuf" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
+          <span v-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
+            🔒 AES 加密报文
+          </span>
+          <span v-else-if="isProtobuf && jsonInfo.isValidJson" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
             📦 Protobuf 已解码
           </span>
         </div>
@@ -115,7 +131,7 @@ export default {
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            {{ isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text' }}
+            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text') }}
           </button>
           <button 
             class="sub-tab-btn" 
@@ -157,12 +173,25 @@ export default {
       <!-- 内容展示区域 (类似 Charles 带有代码行号与语法高亮) -->
       <div class="panel-content-area">
         <!-- JSON / Raw 文本视图 (支持 JSON 语法着色) -->
-        <div v-if="activeSubTab === 'json' || activeSubTab === 'raw'" class="code-editor-view">
-          <div class="code-line-numbers">
-            <span v-for="n in lines.length" :key="n">{{ n }}</span>
+        <div v-if="activeSubTab === 'json' || activeSubTab === 'raw'" class="editor-outer-wrapper">
+          <!-- 应用层加密特别说明条 -->
+          <div v-if="isEncrypted && !jsonInfo.isValidJson && activeSubTab === 'json'" class="crypto-alert-banner">
+            <span class="crypto-alert-icon">🔒</span>
+            <div class="crypto-alert-content">
+              <strong>检测到应用层二次加密（{{ request.requestHeaders?.['x-xc-proto-req'] ? '小川 XCP / AES 动态密文' : 'AES 分组密文' }}）</strong>
+              <div class="crypto-alert-desc">
+                该接口在 HTTPS (TLS) 基础上启用了客户端私有对称加密（请求头 <code>x-xc-proto-req</code> 包含动态公钥协商密文）。抓包已完成传输层解密，但业务报文在手机端被二次加密。若需分析明文，建议使用 Frida / Xposed Hook 拦截 <code>NetCrypto.encodeAES</code>。
+              </div>
+            </div>
           </div>
-          <div class="code-lines-content">
-            <pre><code v-html="highlightedContent"></code></pre>
+
+          <div class="code-editor-view">
+            <div class="code-line-numbers">
+              <span v-for="n in lines.length" :key="n">{{ n }}</span>
+            </div>
+            <div class="code-lines-content">
+              <pre><code v-html="highlightedContent"></code></pre>
+            </div>
           </div>
         </div>
 
