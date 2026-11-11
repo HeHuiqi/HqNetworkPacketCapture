@@ -170,7 +170,7 @@ function parseProtobufInternal(buffer, depth = 0) {
 const zlib = require('zlib');
 
 /**
- * 判断是否为 Protobuf 相关的 Content-Type (支持标准 protobuf 及小川 xcp 等二进制私有协议)
+ * 判断是否为 Protobuf / gRPC 相关的 Content-Type
  */
 function isProtobufContentType(contentType = '') {
   if (!contentType) return false;
@@ -180,15 +180,77 @@ function isProtobufContentType(contentType = '') {
          lower.includes('application/x-google-protobuf') ||
          lower.includes('application/vnd.google.protobuf') ||
          lower.includes('x-protobuf') ||
+         lower.includes('application/grpc') ||
+         lower.includes('application/grpc-web') ||
+         lower.includes('grpc-web') ||
+         lower.includes('/grpc') ||
          lower.includes('application/xcp') ||
          lower.includes('application/x-xcp') ||
          lower.includes('/xcp');
 }
 
 /**
+ * 解码 gRPC 帧格式 (1 字节 Compressed-Flag + 4 字节 Big-Endian Length + Payload)
+ * 支持多消息连续流式分帧 (Streaming) 与 Gzip 压缩分包
+ */
+function tryParseGrpcFrames(buffer) {
+  if (!buffer || buffer.length < 5) return null;
+  
+  const results = [];
+  let offset = 0;
+
+  while (offset + 5 <= buffer.length) {
+    const flag = buffer[offset];
+    // gRPC 规范: flag 必须是 0 (未压缩) 或 1 (已压缩)
+    if (flag !== 0 && flag !== 1) {
+      break;
+    }
+    const len = buffer.readUInt32BE(offset + 1);
+    // 长度合法性校验 (剩余字节数必须能容纳该帧)
+    if (offset + 5 + len > buffer.length) {
+      break;
+    }
+
+    let payload = buffer.slice(offset + 5, offset + 5 + len);
+    if (flag === 1) {
+      try {
+        payload = zlib.gunzipSync(payload);
+      } catch (_) {}
+    }
+
+    if (payload.length > 0) {
+      const parsed = parseProtobufInternal(payload, 0);
+      if (parsed && Object.keys(parsed).length > 0) {
+        results.push(parsed);
+      } else {
+        // 如果内部直接是 JSON (如 grpc+json)
+        try {
+          const jsonVal = JSON.parse(payload.toString('utf8'));
+          results.push(jsonVal);
+        } catch (_) {}
+      }
+    }
+
+    offset += 5 + len;
+    if (len === 0) break;
+  }
+
+  if (results.length > 0) {
+    return {
+      success: true,
+      isGrpc: true,
+      data: results.length === 1 ? results[0] : results,
+      json: JSON.stringify(results.length === 1 ? results[0] : results, null, 2)
+    };
+  }
+
+  return null;
+}
+
+/**
  * 对外公开的解码函数
  * @param {Buffer} buffer 原始二进制数据
- * @returns {{ success: boolean, data?: object, json?: string, error?: string }}
+ * @returns {{ success: boolean, data?: object, json?: string, error?: string, isGrpc?: boolean }}
  */
 function decodeProtobuf(buffer) {
   if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
@@ -205,7 +267,13 @@ function decodeProtobuf(buffer) {
     }
   }
 
-  // 2. 优先从第 0 字节开始直接解析标准 Protobuf
+  // 2. 核心优先：尝试以 gRPC 5 字节帧结构 (Flag + Length) 解包
+  const grpcResult = tryParseGrpcFrames(targetBuffer);
+  if (grpcResult && grpcResult.success) {
+    return grpcResult;
+  }
+
+  // 3. 优先从第 0 字节开始直接解析标准 Protobuf
   let parsed = parseProtobufInternal(targetBuffer, 0);
   if (parsed && Object.keys(parsed).length > 0) {
     return {
@@ -215,7 +283,7 @@ function decodeProtobuf(buffer) {
     };
   }
 
-  // 3. 针对携带自定义包头（如 xcp / gRPC 常见 4 字节长度头、5 字节 Flag+Length、2 字节或 8 字节包头）的报文尝试多偏移量容错
+  // 4. 针对携带自定义包头（如 xcp / RPC 常见 4 字节长度头、5 字节 Flag+Length、2 字节或 8 字节包头）的报文尝试多偏移量容错
   const candidateOffsets = [4, 5, 2, 8, 1, 6, 12, 16];
   for (const offset of candidateOffsets) {
     if (targetBuffer.length > offset + 1) {

@@ -27,7 +27,15 @@ export default {
              !!props.request.isProtobuf || 
              ct.includes('protobuf') ||
              ct.includes('application/xcp') ||
-             ct.includes('/xcp');
+             ct.includes('/xcp') ||
+             ct.includes('grpc');
+    });
+
+    const isGrpc = computed(() => {
+      const ct = (props.request.requestHeaders?.['content-type'] || '').toLowerCase();
+      return !!props.request.requestIsGrpc || 
+             !!props.request.isGrpc || 
+             ct.includes('grpc');
     });
 
     const isEncrypted = computed(() => {
@@ -100,6 +108,7 @@ export default {
       jsonInfo,
       isProtobuf,
       isEncrypted,
+      isGrpc,
       isJson,
       lines,
       highlightedContent,
@@ -117,7 +126,10 @@ export default {
       <div class="panel-section-header">
         <div class="section-badge request-badge">
           <span>📤 请求 (Request)</span>
-          <span v-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
+          <span v-if="isGrpc && jsonInfo.isValidJson" class="badge-grpc" title="gRPC 帧解包 (拆解 5 字节帧头并反编译 Protobuf)">
+            ⚡ gRPC (Protobuf)
+          </span>
+          <span v-else-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
             🔒 AES 加密报文
           </span>
           <span v-else-if="isProtobuf && jsonInfo.isValidJson" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
@@ -131,7 +143,7 @@ export default {
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text') }}
+            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isGrpc ? '⚡ gRPC (JSON)' : (isProtobuf ? '📦 Protobuf (JSON)' : 'JSON Text')) }}
           </button>
           <button 
             class="sub-tab-btn" 

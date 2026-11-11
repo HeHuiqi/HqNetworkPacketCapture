@@ -2941,6 +2941,27 @@ input:checked + .slider:before { transform: translateX(16px); }
   background: rgba(0, 0, 0, 0.06);
 }
 
+/* gRPC 专属徽章样式 */
+.badge-grpc {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+[data-theme="light"] .badge-grpc {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+
 /* 应用层二次加密专属样式 */
 .badge-crypto-aes {
   margin-left: 6px;

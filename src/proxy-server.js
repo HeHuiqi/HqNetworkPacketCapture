@@ -373,6 +373,10 @@ class ProxyServer extends EventEmitter {
               tx.requestIsProtobuf = true;
               tx.requestIsJson = true;
               tx.isProtobuf = true;
+              if (pbResult.isGrpc) {
+                tx.requestIsGrpc = true;
+                tx.isGrpc = true;
+              }
             } else {
               const cryptoInfo = isAppLayerEncryptedPayload(req.headers, decompressedReq, isReqProtobuf);
               if (cryptoInfo.encrypted) {
@@ -514,6 +518,10 @@ class ProxyServer extends EventEmitter {
                 tx.bodyType = 'protobuf';
                 tx.responseBody = pbResult.json;
                 tx.isJson = true;
+                if (pbResult.isGrpc) {
+                  tx.responseIsGrpc = true;
+                  tx.isGrpc = true;
+                }
               } else {
                 const cryptoInfo = isAppLayerEncryptedPayload(res.headers, decompressedBuf, isProtobuf);
                 if (cryptoInfo.encrypted) {

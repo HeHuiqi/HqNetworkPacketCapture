@@ -71,7 +71,15 @@ export default {
              ct.includes('protobuf') || 
              ct.includes('application/xcp') ||
              ct.includes('/xcp') ||
+             ct.includes('grpc') ||
              props.request.bodyType === 'protobuf';
+    });
+
+    const isGrpc = computed(() => {
+      const ct = contentType.value;
+      return !!props.request.responseIsGrpc || 
+             !!props.request.isGrpc || 
+             ct.includes('grpc');
     });
 
     const isEncrypted = computed(() => {
@@ -247,6 +255,7 @@ export default {
       imgLoadError,
       is304,
       isEncrypted,
+      isGrpc,
       onImageLoad,
       onImageError,
       downloadBody,
@@ -265,7 +274,10 @@ export default {
           <span v-if="request.isMocked" class="badge-mock-mini" style="margin-left: 6px;">
             ⚡ Map Local 拦截
           </span>
-          <span v-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
+          <span v-if="isGrpc && jsonInfo.isValidJson" class="badge-grpc" title="gRPC 帧解包 (拆解 5 字节帧头并反编译 Protobuf)">
+            ⚡ gRPC (Protobuf)
+          </span>
+          <span v-else-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
             🔒 AES 加密报文
           </span>
           <span v-else-if="isProtobuf && jsonInfo.isValidJson" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
@@ -325,14 +337,14 @@ export default {
             📝 HTML 源码
           </button>
 
-          <!-- JSON / Protobuf / JS / 文本视图 Tab -->
+          <!-- JSON / Protobuf / gRPC / JS / 文本视图 Tab -->
           <button 
             v-if="!isImage && !isVideo && !isAudio && !isHtml"
             class="sub-tab-btn" 
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text'))) }}
+            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isGrpc ? '⚡ gRPC (JSON)' : (isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text')))) }}
           </button>
 
           <button 
