@@ -167,8 +167,10 @@ function parseProtobufInternal(buffer, depth = 0) {
   return fieldCount > 0 ? result : null;
 }
 
+const zlib = require('zlib');
+
 /**
- * 判断是否为 Protobuf 相关的 Content-Type
+ * 判断是否为 Protobuf 相关的 Content-Type (支持标准 protobuf 及小川 xcp 等二进制私有协议)
  */
 function isProtobufContentType(contentType = '') {
   if (!contentType) return false;
@@ -177,7 +179,10 @@ function isProtobufContentType(contentType = '') {
          lower.includes('application/protobuf') ||
          lower.includes('application/x-google-protobuf') ||
          lower.includes('application/vnd.google.protobuf') ||
-         lower.includes('x-protobuf');
+         lower.includes('x-protobuf') ||
+         lower.includes('application/xcp') ||
+         lower.includes('application/x-xcp') ||
+         lower.includes('/xcp');
 }
 
 /**
@@ -190,13 +195,42 @@ function decodeProtobuf(buffer) {
     return { success: false, error: 'Empty buffer' };
   }
 
-  const parsed = parseProtobufInternal(buffer, 0);
+  // 1. 如果带有 Gzip 压缩头，先解压缩
+  let targetBuffer = buffer;
+  if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+    try {
+      targetBuffer = zlib.gunzipSync(buffer);
+    } catch (_) {
+      targetBuffer = buffer;
+    }
+  }
+
+  // 2. 优先从第 0 字节开始直接解析标准 Protobuf
+  let parsed = parseProtobufInternal(targetBuffer, 0);
   if (parsed && Object.keys(parsed).length > 0) {
     return {
       success: true,
       data: parsed,
       json: JSON.stringify(parsed, null, 2)
     };
+  }
+
+  // 3. 针对携带自定义包头（如 xcp / gRPC 常见 4 字节长度头、5 字节 Flag+Length、2 字节或 8 字节包头）的报文尝试多偏移量容错
+  const candidateOffsets = [4, 5, 2, 8, 1, 6, 12, 16];
+  for (const offset of candidateOffsets) {
+    if (targetBuffer.length > offset + 1) {
+      try {
+        const offsetParsed = parseProtobufInternal(targetBuffer, offset);
+        if (offsetParsed && Object.keys(offsetParsed).length > 0) {
+          return {
+            success: true,
+            data: offsetParsed,
+            json: JSON.stringify(offsetParsed, null, 2),
+            offset
+          };
+        }
+      } catch (_) {}
+    }
   }
 
   return { success: false, error: 'Invalid or unsupported Protobuf format' };

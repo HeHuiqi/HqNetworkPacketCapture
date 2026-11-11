@@ -69,6 +69,8 @@ export default {
       const ct = contentType.value;
       return !!props.request.isProtobuf || 
              ct.includes('protobuf') || 
+             ct.includes('application/xcp') ||
+             ct.includes('/xcp') ||
              props.request.bodyType === 'protobuf';
     });
 

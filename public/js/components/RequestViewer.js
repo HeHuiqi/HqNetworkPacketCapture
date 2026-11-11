@@ -25,7 +25,9 @@ export default {
       const ct = (props.request.requestHeaders?.['content-type'] || '').toLowerCase();
       return !!props.request.requestIsProtobuf || 
              !!props.request.isProtobuf || 
-             ct.includes('protobuf');
+             ct.includes('protobuf') ||
+             ct.includes('application/xcp') ||
+             ct.includes('/xcp');
     });
 
     const lines = computed(() => {
