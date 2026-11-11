@@ -1,11 +1,60 @@
 const mockttp = require('mockttp');
 const fs = require('fs');
+const zlib = require('zlib');
 const { EventEmitter } = require('events');
 const { getOrCreateCA, getAndroidSystemCertFilename, CA_CERT_PATH, CA_CRT_PATH } = require('./cert-manager');
 const ruleManager = require('./rule-manager');
 const settingsManager = require('./settings-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 const { isProtobufContentType, decodeProtobuf } = require('./protobuf-parser');
+
+/**
+ * 智能解压缩二进制数据 (支持 gzip, deflate, br)
+ * 支持通过 Content-Encoding 头识别与 Magic Bytes 魔数主动探测
+ */
+function decompressBufferIfNeeded(buffer, headers = {}) {
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return buffer;
+  }
+
+  const encoding = (headers['content-encoding'] || headers['Content-Encoding'] || '').toLowerCase().trim();
+
+  // 1. 若根据头部显式声明了压缩编码
+  if (encoding.includes('gzip')) {
+    try {
+      return zlib.gunzipSync(buffer);
+    } catch (_) {}
+  } else if (encoding.includes('br')) {
+    try {
+      return zlib.brotliDecompressSync(buffer);
+    } catch (_) {}
+  } else if (encoding.includes('deflate')) {
+    try {
+      return zlib.inflateSync(buffer);
+    } catch (_) {
+      try {
+        return zlib.inflateRawSync(buffer);
+      } catch (_) {}
+    }
+  }
+
+  // 2. 头部缺失或不规范时，通过二进制魔数自动识别与兜底解压
+  // Gzip 魔数: 0x1f 0x8b
+  if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+    try {
+      return zlib.gunzipSync(buffer);
+    } catch (_) {}
+  }
+
+  // Zlib Deflate 常见特征头: 0x78 0x01 / 0x78 0x9c / 0x78 0xda
+  if (buffer.length >= 2 && buffer[0] === 0x78 && (buffer[1] === 0x01 || buffer[1] === 0x9c || buffer[1] === 0xda)) {
+    try {
+      return zlib.inflateSync(buffer);
+    } catch (_) {}
+  }
+
+  return buffer;
+}
 
 /**
  * 提取并还原客户端请求的原始完整 URL
@@ -223,25 +272,66 @@ class ProxyServer extends EventEmitter {
       const isReqProtobuf = isProtobufContentType(reqContentType);
 
       try {
-        if (isReqProtobuf) {
-          const reqBuffer = await req.body.getDecodedBuffer();
-          if (reqBuffer && reqBuffer.length > 0) {
-            const pbResult = decodeProtobuf(reqBuffer);
+        let reqBuffer = null;
+        try {
+          reqBuffer = await req.body.getDecodedBuffer();
+        } catch (_) {}
+        if (!reqBuffer || reqBuffer.length === 0) {
+          try {
+            reqBuffer = await req.body.asBuffer();
+          } catch (_) {}
+        }
+
+        if (reqBuffer && reqBuffer.length > 0) {
+          // 智能解压缩请求体 (自动识别 gzip / deflate / br 及其魔数)
+          const decompressedReq = decompressBufferIfNeeded(reqBuffer, req.headers);
+
+          if (isReqProtobuf) {
+            tx.isProtobuf = true;
+            tx.requestIsProtobuf = true;
+            const pbResult = decodeProtobuf(decompressedReq);
             if (pbResult.success) {
               tx.requestBody = pbResult.json;
-              tx.requestIsProtobuf = true;
-              tx.isProtobuf = true;
+              tx.requestIsJson = true;
             } else {
-              tx.requestBody = `[Protobuf 报文: ${reqBuffer.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${reqBuffer.toString('hex')}`;
-              tx.requestIsProtobuf = true;
+              tx.requestBody = `[Protobuf 报文: ${decompressedReq.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedReq.toString('hex')}`;
             }
           } else {
-            const bodyText = await req.body.getText();
-            tx.requestBody = bodyText || '';
+            const text = decompressedReq.toString('utf8');
+            let isJsonSuccess = false;
+
+            // 智能识别 JSON
+            try {
+              const trimmed = text.trim();
+              if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                const parsed = JSON.parse(trimmed);
+                tx.requestBody = JSON.stringify(parsed, null, 2);
+                tx.requestIsJson = true;
+                isJsonSuccess = true;
+              }
+            } catch (_) {}
+
+            if (!isJsonSuccess) {
+              // 尝试探测是否为未标 application/x-protobuf 的 Protobuf 二进制
+              const pbResult = decodeProtobuf(decompressedReq);
+              if (pbResult.success && Object.keys(pbResult.data || {}).length > 0) {
+                tx.requestBody = pbResult.json;
+                tx.requestIsProtobuf = true;
+                tx.requestIsJson = true;
+                tx.isProtobuf = true;
+              } else {
+                // 判断是否为可读文本
+                const isPrintable = /^[\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]*$/.test(text.slice(0, 500));
+                if (isPrintable) {
+                  tx.requestBody = text;
+                } else {
+                  tx.requestBody = `[二进制数据: ${decompressedReq.length} 字节]\n0x${decompressedReq.slice(0, 512).toString('hex')}`;
+                }
+              }
+            }
           }
         } else {
-          const bodyText = await req.body.getText();
-          tx.requestBody = bodyText || '';
+          tx.requestBody = '';
         }
       } catch (err) {
         tx.requestBody = `[无法读取请求体: ${err.message}]`;
@@ -276,23 +366,38 @@ class ProxyServer extends EventEmitter {
       const isJson = contentType.includes('json');
 
       try {
-        const buffer = await res.body.getDecodedBuffer();
+        let buffer = null;
+        try {
+          buffer = await res.body.getDecodedBuffer();
+        } catch (_) {}
+        if (!buffer || buffer.length === 0) {
+          try {
+            buffer = await res.body.asBuffer();
+          } catch (_) {}
+        }
+
         if (buffer && buffer.length > 0) {
-          // 完整缓存二进制 Buffer，供网页端图片渲染、视频播放或原文件下载
+          // 完整缓存原始二进制 Buffer
           this.setBodyBuffer(tx.id, buffer);
 
-          const isHeic = isUrlHeic || isBufferHeic(buffer);
+          // 核心！进行智能解压缩（防范 Gzip / Brotli / Deflate 导致的乱码）
+          const decompressedBuf = decompressBufferIfNeeded(buffer, res.headers);
+          if (decompressedBuf !== buffer) {
+            this.setBodyBuffer(tx.id, decompressedBuf);
+          }
+
+          const isHeic = isUrlHeic || isBufferHeic(decompressedBuf);
           const isImage = isHeic || contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(urlLower);
 
           if (isProtobuf) {
             tx.isProtobuf = true;
             tx.bodyType = 'protobuf';
-            const pbResult = decodeProtobuf(buffer);
+            const pbResult = decodeProtobuf(decompressedBuf);
             if (pbResult.success) {
               tx.responseBody = pbResult.json;
               tx.isJson = true; // 自动激活前端 JSON 树与高亮着色器
             } else {
-              tx.responseBody = `[Protobuf 响应数据: ${buffer.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${buffer.toString('hex')}`;
+              tx.responseBody = `[Protobuf 响应数据: ${decompressedBuf.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedBuf.toString('hex')}`;
             }
           } else if (isHeic) {
             tx.isHeic = true;
@@ -300,37 +405,66 @@ class ProxyServer extends EventEmitter {
             tx.bodyType = 'image';
 
             try {
-              const jpegBuffer = await convertHeicToJpeg(buffer);
+              const jpegBuffer = await convertHeicToJpeg(decompressedBuf);
               this.setPreviewBuffer(tx.id, jpegBuffer);
               tx.hasHeicPreview = true;
-              tx.responseBody = `[HEIC 高清图像: 大小 ${buffer.length} 字节 (已转码 JPEG 预览)]`;
+              tx.responseBody = `[HEIC 高清图像: 大小 ${decompressedBuf.length} 字节 (已转码 JPEG 预览)]`;
             } catch (convErr) {
               console.warn('[ProxyServer] HEIC 转换失败:', convErr.message);
               tx.hasHeicPreview = false;
-              tx.responseBody = `[HEIC 图片: 大小 ${buffer.length} 字节]`;
+              tx.responseBody = `[HEIC 图片: 大小 ${decompressedBuf.length} 字节]`;
             }
           } else if (isImage) {
             tx.isImage = true;
             tx.bodyType = 'image';
-            tx.responseBody = `[图片内容: ${contentType || 'image'}, 大小: ${buffer.length} 字节]`;
+            tx.responseBody = `[图片内容: ${contentType || 'image'}, 大小: ${decompressedBuf.length} 字节]`;
           } else if (isVideo) {
             tx.isVideo = true;
             tx.bodyType = 'video';
-            tx.responseBody = `[视频媒体: ${contentType || 'video'}, 大小: ${buffer.length} 字节]`;
+            tx.responseBody = `[视频媒体: ${contentType || 'video'}, 大小: ${decompressedBuf.length} 字节]`;
           } else if (isAudio) {
             tx.isAudio = true;
             tx.bodyType = 'audio';
-            tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${buffer.length} 字节]`;
+            tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${decompressedBuf.length} 字节]`;
           } else {
-            tx.responseBody = buffer.toString('utf8');
-            if (isHtml) {
-              tx.isHtml = true;
-              tx.bodyType = 'html';
-            } else if (isJson) {
-              tx.isJson = true;
-              tx.bodyType = 'json';
-            } else {
-              tx.bodyType = 'text';
+            const text = decompressedBuf.toString('utf8');
+            let isJsonSuccess = false;
+
+            // 智能识别 JSON 格式
+            try {
+              const trimmed = text.trim();
+              if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                const parsed = JSON.parse(trimmed);
+                tx.responseBody = JSON.stringify(parsed, null, 2);
+                tx.isJson = true;
+                tx.bodyType = 'json';
+                isJsonSuccess = true;
+              }
+            } catch (_) {}
+
+            if (!isJsonSuccess) {
+              if (isHtml) {
+                tx.isHtml = true;
+                tx.bodyType = 'html';
+                tx.responseBody = text;
+              } else if (isJson) {
+                tx.isJson = true;
+                tx.bodyType = 'json';
+                tx.responseBody = text;
+              } else {
+                // 尝试探测是否为未显式标注 Content-Type 的 Protobuf 二进制
+                const pbResult = decodeProtobuf(decompressedBuf);
+                if (pbResult.success && Object.keys(pbResult.data || {}).length > 0) {
+                  tx.isProtobuf = true;
+                  tx.isJson = true;
+                  tx.bodyType = 'protobuf';
+                  tx.responseBody = pbResult.json;
+                } else {
+                  // 纯文本兜底
+                  tx.responseBody = text;
+                  tx.bodyType = 'text';
+                }
+              }
             }
           }
         } else {
