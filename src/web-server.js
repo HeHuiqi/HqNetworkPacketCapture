@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +13,68 @@ const settingsManager = require('./settings-manager');
 const proxyServer = require('./proxy-server');
 const socksServer = require('./socks-server');
 const systemProxyManager = require('./system-proxy-manager');
+
+/**
+ * 原生发起无缓存的 HTTP/HTTPS GET 请求，用于为 304 协商缓存或丢失 Body 的图片/媒体资源自动回源补全预览
+ */
+function fetchUrlBuffer(urlStr, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(urlStr);
+      const isHttps = u.protocol === 'https:';
+      const client = isHttps ? https : http;
+
+      const reqHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
+        'Accept': '*/*',
+        ...extraHeaders
+      };
+      // 必须剔除条件缓存头，确保对端服务器强制下发完整 200 二进制报文
+      delete reqHeaders['if-none-match'];
+      delete reqHeaders['if-modified-since'];
+
+      const options = {
+        hostname: u.hostname,
+        port: u.port || (isHttps ? 443 : 80),
+        path: (u.pathname || '/') + (u.search || ''),
+        method: 'GET',
+        headers: reqHeaders,
+        rejectUnauthorized: false
+      };
+
+      const req = client.request(options, (res) => {
+        // 重定向跟随 (301 / 302 / 307)
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          let nextUrl = res.headers.location;
+          if (nextUrl.startsWith('/')) {
+            nextUrl = `${u.protocol}//${u.host}${nextUrl}`;
+          }
+          return fetchUrlBuffer(nextUrl, extraHeaders).then(resolve).catch(reject);
+        }
+
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          resolve({
+            statusCode: res.statusCode,
+            contentType: res.headers['content-type'] || 'image/png',
+            buffer: buf
+          });
+        });
+      });
+
+      req.on('error', reject);
+      req.setTimeout(8000, () => {
+        req.destroy();
+        reject(new Error('Fetch timeout'));
+      });
+      req.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
 
 class WebServer {
   constructor() {
@@ -295,7 +358,7 @@ class WebServer {
     });
 
     // 响应体原始数据/多媒体流接口（图片显示、视频播放、音频播放、原文件下载）
-    this.app.get('/api/requests/:id/body', (req, res) => {
+    this.app.get('/api/requests/:id/body', async (req, res) => {
       const tx = proxyServer.getTransaction(req.params.id);
       if (!tx) {
         return res.status(404).send('Not Found');
@@ -317,11 +380,40 @@ class WebServer {
       if (tx.isHeic && !contentType.includes('heic') && !contentType.includes('heif')) {
         contentType = 'image/heic';
       }
+
+      let buffer = proxyServer.getBodyBuffer(tx.id);
+
+      // 智能回源与历史缓存补齐：当命中 304 缓存或 Body 未捕获时，自动复用同 URL 历史 200 缓存或回源拉取
+      if (!buffer && (Number(tx.statusCode) === 304 || tx.isImage || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp|heic|mp4|mov|mp3)(\?|$)/i.test(tx.url || ''))) {
+        const hist = proxyServer.findHistoricalBufferByUrl(tx.url);
+        if (hist) {
+          buffer = hist.buffer;
+          proxyServer.setBodyBuffer(tx.id, buffer);
+          if (hist.contentType && (!contentType || contentType === 'application/octet-stream')) {
+            contentType = hist.contentType;
+          }
+          tx.cachedFromHistory = true;
+        } else if (tx.url && (tx.url.startsWith('http://') || tx.url.startsWith('https://'))) {
+          try {
+            const fetched = await fetchUrlBuffer(tx.url);
+            if (fetched && fetched.buffer && fetched.buffer.length > 0) {
+              buffer = fetched.buffer;
+              proxyServer.setBodyBuffer(tx.id, buffer);
+              if (fetched.contentType) {
+                contentType = fetched.contentType;
+              }
+              tx.fetchedFallback = true;
+            }
+          } catch (e) {
+            console.warn(`[WebServer] 自动回源补全 304 资源失败: ${tx.url} (${e.message})`);
+          }
+        }
+      }
+
       res.setHeader('Content-Type', contentType);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Disposition', 'inline');
 
-      const buffer = proxyServer.getBodyBuffer(tx.id);
       if (buffer) {
         // 支持 HTML 5 视频/音频拖动播放 (HTTP 206 Partial Content)
         if (req.headers.range) {
@@ -348,7 +440,7 @@ class WebServer {
     });
 
     // 专属预览图接口 (HEIC 优先返回转换后的 JPEG，兼容所有不支持 HEIC 的浏览器和环境)
-    this.app.get('/api/requests/:id/preview-image', (req, res) => {
+    this.app.get('/api/requests/:id/preview-image', async (req, res) => {
       const tx = proxyServer.getTransaction(req.params.id);
       if (!tx) {
         return res.status(404).send('Not Found');
@@ -363,7 +455,23 @@ class WebServer {
         return res.end(previewBuf);
       }
 
-      const origBuf = proxyServer.getBodyBuffer(tx.id);
+      let origBuf = proxyServer.getBodyBuffer(tx.id);
+      if (!origBuf && (Number(tx.statusCode) === 304 || tx.isImage || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp|heic)(\?|$)/i.test(tx.url || ''))) {
+        const hist = proxyServer.findHistoricalBufferByUrl(tx.url);
+        if (hist) {
+          origBuf = hist.buffer;
+          proxyServer.setBodyBuffer(tx.id, origBuf);
+        } else if (tx.url && (tx.url.startsWith('http://') || tx.url.startsWith('https://'))) {
+          try {
+            const fetched = await fetchUrlBuffer(tx.url);
+            if (fetched && fetched.buffer && fetched.buffer.length > 0) {
+              origBuf = fetched.buffer;
+              proxyServer.setBodyBuffer(tx.id, origBuf);
+            }
+          } catch (_) {}
+        }
+      }
+
       if (origBuf) {
         let contentType = tx.responseHeaders?.['content-type'] || 'image/png';
         if (tx.isHeic) contentType = 'image/heic';

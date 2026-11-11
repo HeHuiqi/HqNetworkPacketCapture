@@ -97,6 +97,22 @@ class ProxyServer extends EventEmitter {
     return this.previewBuffers.get(id) || null;
   }
 
+  /**
+   * 按目标 URL 在抓包历史事务中倒序查找最近一次返回 200 OK 的二进制 Buffer 缓存（供 304 协商缓存等场景自动复用）
+   */
+  findHistoricalBufferByUrl(url) {
+    if (!url) return null;
+    for (const [id, tx] of this.transactions.entries()) {
+      if (tx.url === url && Number(tx.statusCode) === 200) {
+        const buf = this.getBodyBuffer(id);
+        if (buf && buf.length > 0) {
+          return { buffer: buf, contentType: tx.responseHeaders?.['content-type'] };
+        }
+      }
+    }
+    return null;
+  }
+
   async start(port = 8888) {
     this.port = port;
     const ca = await getOrCreateCA();

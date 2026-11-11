@@ -364,34 +364,28 @@ export default {
               <button class="btn btn-xs btn-default" @click="downloadBody()" :title="isHeic ? '下载 HEIC 原始文件' : '下载原图'">{{ isHeic ? '下载 HEIC 原图 ⬇' : '下载图片 ⬇' }}</button>
             </div>
           </div>
-          <div class="media-canvas checkerboard-bg" style="position: relative; display: flex; align-items: center; justify-content: center; min-height: 220px;">
-            <!-- 304 缓存未下发报文提示 -->
-            <div v-if="is304" style="text-align: center; padding: 24px; max-width: 440px; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); border-radius: 8px; border: 1px dashed var(--border-color); color: var(--text-color); box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
-              <div style="font-size: 28px; margin-bottom: 8px;">⚡</div>
-              <div style="font-weight: 600; margin-bottom: 6px; font-size: 14px;">HTTP 304 Not Modified (协商缓存)</div>
-              <div style="font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px;">
-                客户端（浏览器或 App）携带了 ETag / If-Modified-Since 请求头，服务器确认该图片未修改，直接通知客户端复用本地缓存，因此<b>本次网络请求未下发图片数据 (0 字节)</b>。
-              </div>
-              <div style="display: flex; gap: 8px; justify-content: center;">
-                <button class="btn btn-primary btn-xs" @click="openInNewTab">
-                  🌐 浏览器直接打开原链接
-                </button>
-              </div>
+          <div class="media-canvas checkerboard-bg" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220px; padding: 16px;">
+            <!-- 304 协商缓存提示条 (若已补齐预览) -->
+            <div v-if="is304 && !imgLoadError" style="margin-bottom: 12px; padding: 5px 12px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; font-size: 11px; color: #60a5fa; display: flex; align-items: center; gap: 6px;">
+              <span>⚡</span>
+              <span><b>HTTP 304 协商缓存</b>：服务器未下发报文，抓包工具已自动拉取/复用原图用于预览与下载</span>
             </div>
 
-            <!-- 加载失败错误提示 (非 304 场景) -->
-            <div v-else-if="imgLoadError" style="text-align: center; padding: 24px; max-width: 420px; color: var(--text-dim);">
+            <!-- 加载失败错误提示 (兜底) -->
+            <div v-if="imgLoadError" style="text-align: center; padding: 24px; max-width: 440px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px dashed var(--border-color); color: var(--text-color);">
               <div style="font-size: 26px; margin-bottom: 8px;">⚠️</div>
-              <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-color);">图片无法正常解码或未获取到有效数据</div>
-              <div style="font-size: 11px; margin-bottom: 14px; opacity: 0.85; line-height: 1.5;">可能由于客户端主动取消请求 (aborted)、连接断开或防盗链未返回完整图片流。</div>
-              <button class="btn btn-default btn-xs" @click="openInNewTab">
-                在新标签页尝试直接打开原图 ↗
+              <div style="font-weight: 600; margin-bottom: 6px; font-size: 14px;">{{ is304 ? 'HTTP 304 协商缓存 (未能回源补全)' : '图片无法正常加载' }}</div>
+              <div style="font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px;">
+                {{ is304 ? '服务器返回了 304 Not Modified 且源站拒绝了回源补全，客户端此时应复用本地磁盘缓存。' : '未获取到有效图片二进制数据。' }}
+              </div>
+              <button class="btn btn-primary btn-xs" @click="openInNewTab">
+                🌐 在新窗口尝试直接打开原链接
               </button>
             </div>
 
-            <!-- 正常图片渲染 -->
+            <!-- 正常图片渲染 (304 与 200 均可秒级渲染) -->
             <img 
-              v-show="!is304 && !imgLoadError" 
+              v-show="!imgLoadError" 
               :src="imageSrc" 
               :class="imgFitMode === 'fit' ? 'img-fit' : 'img-original'" 
               @load="onImageLoad" 
