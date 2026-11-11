@@ -9,6 +9,27 @@ const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 const { isProtobufContentType, decodeProtobuf } = require('./protobuf-parser');
 
 /**
+ * 检验字符串是否为人类可读的合法纯文本（排除加密密文与乱码二进制）
+ */
+function isPrintableText(text) {
+  if (!text || typeof text !== 'string') return false;
+  if (text.length === 0) return true;
+  const sample = text.slice(0, 2000);
+  let printableCount = 0;
+  for (let i = 0; i < sample.length; i++) {
+    const code = sample.charCodeAt(i);
+    // 允许常见空白与控制符: \t(9), \n(10), \r(13)
+    if (code === 9 || code === 10 || code === 13) {
+      printableCount++;
+    } else if (code >= 32 && code !== 65533) {
+      // 65533 是 UTF-8 替换符 \uFFFD (乱码特征)
+      printableCount++;
+    }
+  }
+  return (printableCount / sample.length) >= 0.95;
+}
+
+/**
  * 检测请求或响应是否属于应用层二次加密协议（如小川在线 XiaoChuan XCP、AES 等）
  */
 function isAppLayerEncryptedPayload(headers = {}, buffer, isProtobufType = false) {
@@ -312,16 +333,46 @@ class ProxyServer extends EventEmitter {
         }
 
         if (reqBuffer && reqBuffer.length > 0) {
-          // 智能解压缩请求体 (自动识别 gzip / deflate / br 及其魔数)
+          // 1. 优先智能解压缩请求体 (自动识别 gzip / deflate / br 及其魔数)
           const decompressedReq = decompressBufferIfNeeded(reqBuffer, req.headers);
 
-          if (isReqProtobuf) {
-            tx.isProtobuf = true;
-            tx.requestIsProtobuf = true;
+          // 2. 核心：解压后优先探测是否为合法 JSON 或人类可读文本，是就直接展示！
+          const text = decompressedReq.toString('utf8');
+          let isJsonSuccess = false;
+          let parsedJson = null;
+
+          try {
+            const trimmed = text.trim();
+            if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+              parsedJson = JSON.parse(trimmed);
+              isJsonSuccess = true;
+            }
+          } catch (_) {}
+
+          if (isJsonSuccess) {
+            // 是合法的明文 JSON，直接格式化展示为 JSON
+            tx.requestBody = JSON.stringify(parsedJson, null, 2);
+            tx.requestIsJson = true;
+            tx.isJson = true;
+            tx.requestIsProtobuf = false;
+            tx.isProtobuf = false;
+            tx.requestIsAppEncrypted = false;
+            tx.isAppEncrypted = false;
+          } else if (isPrintableText(text)) {
+            // 是可读字符串，直接展示为文本
+            tx.requestBody = text;
+            tx.requestIsProtobuf = false;
+            tx.isProtobuf = false;
+            tx.requestIsAppEncrypted = false;
+            tx.isAppEncrypted = false;
+          } else {
+            // 3. 只有当解压后仍然是不可读的二进制时，才尝试 Protobuf 反编译或 AES 密文识别
             const pbResult = decodeProtobuf(decompressedReq);
-            if (pbResult.success) {
+            if (pbResult.success && Object.keys(pbResult.data || {}).length > 0) {
               tx.requestBody = pbResult.json;
+              tx.requestIsProtobuf = true;
               tx.requestIsJson = true;
+              tx.isProtobuf = true;
             } else {
               const cryptoInfo = isAppLayerEncryptedPayload(req.headers, decompressedReq, isReqProtobuf);
               if (cryptoInfo.encrypted) {
@@ -331,41 +382,10 @@ class ProxyServer extends EventEmitter {
                   `💡 机制说明: ${cryptoInfo.reason}。该接口在 TLS 之上启用了私有加密，当前内容为密文而非裸 Protobuf 明文。\n` +
                   `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
                   `0x${decompressedReq.toString('hex')}`;
-              } else {
+              } else if (isReqProtobuf) {
                 tx.requestBody = `[Protobuf 报文: ${decompressedReq.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedReq.toString('hex')}`;
-              }
-            }
-          } else {
-            const text = decompressedReq.toString('utf8');
-            let isJsonSuccess = false;
-
-            // 智能识别 JSON
-            try {
-              const trimmed = text.trim();
-              if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-                const parsed = JSON.parse(trimmed);
-                tx.requestBody = JSON.stringify(parsed, null, 2);
-                tx.requestIsJson = true;
-                isJsonSuccess = true;
-              }
-            } catch (_) {}
-
-            if (!isJsonSuccess) {
-              // 尝试探测是否为未标 application/x-protobuf 的 Protobuf 二进制
-              const pbResult = decodeProtobuf(decompressedReq);
-              if (pbResult.success && Object.keys(pbResult.data || {}).length > 0) {
-                tx.requestBody = pbResult.json;
-                tx.requestIsProtobuf = true;
-                tx.requestIsJson = true;
-                tx.isProtobuf = true;
               } else {
-                // 判断是否为可读文本
-                const isPrintable = /^[\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]*$/.test(text.slice(0, 500));
-                if (isPrintable) {
-                  tx.requestBody = text;
-                } else {
-                  tx.requestBody = `[二进制数据: ${decompressedReq.length} 字节]\n0x${decompressedReq.slice(0, 512).toString('hex')}`;
-                }
+                tx.requestBody = `[二进制数据: ${decompressedReq.length} 字节]\n0x${decompressedReq.slice(0, 512).toString('hex')}`;
               }
             }
           }
@@ -419,98 +439,95 @@ class ProxyServer extends EventEmitter {
           // 完整缓存原始二进制 Buffer
           this.setBodyBuffer(tx.id, buffer);
 
-          // 核心！进行智能解压缩（防范 Gzip / Brotli / Deflate 导致的乱码）
+          // 1. 核心！优先进行智能解压缩（防范 Gzip / Brotli / Deflate 导致的乱码）
           const decompressedBuf = decompressBufferIfNeeded(buffer, res.headers);
           if (decompressedBuf !== buffer) {
             this.setBodyBuffer(tx.id, decompressedBuf);
           }
 
-          const isHeic = isUrlHeic || isBufferHeic(decompressedBuf);
-          const isImage = isHeic || contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(urlLower);
+          // 2. 核心：解压后优先探测是否为合法 JSON 或人类可读文本，是就直接展示！
+          const text = decompressedBuf.toString('utf8');
+          let isJsonSuccess = false;
+          let parsedJson = null;
 
-          if (isProtobuf) {
-            tx.isProtobuf = true;
-            tx.bodyType = 'protobuf';
-            const pbResult = decodeProtobuf(decompressedBuf);
-            if (pbResult.success) {
-              tx.responseBody = pbResult.json;
-              tx.isJson = true; // 自动激活前端 JSON 树与高亮着色器
-            } else {
-              const cryptoInfo = isAppLayerEncryptedPayload(res.headers, decompressedBuf, isProtobuf);
-              if (cryptoInfo.encrypted) {
-                tx.responseIsAppEncrypted = true;
-                tx.isAppEncrypted = true;
-                tx.responseBody = `🔒 [应用层加密响应: ${decompressedBuf.length} 字节 (${cryptoInfo.protocol})]\n` +
-                  `💡 机制说明: ${cryptoInfo.reason}。服务端使用与客户端协商的密钥进行了 AES 加密，返回的是密文流而非未加密数据。\n` +
-                  `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
-                  `0x${decompressedBuf.toString('hex')}`;
-              } else {
-                tx.responseBody = `[Protobuf 响应数据: ${decompressedBuf.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedBuf.toString('hex')}`;
-              }
+          try {
+            const trimmed = text.trim();
+            if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+              parsedJson = JSON.parse(trimmed);
+              isJsonSuccess = true;
             }
-          } else if (isHeic) {
-            tx.isHeic = true;
-            tx.isImage = true;
-            tx.bodyType = 'image';
+          } catch (_) {}
 
-            try {
-              const jpegBuffer = await convertHeicToJpeg(decompressedBuf);
-              this.setPreviewBuffer(tx.id, jpegBuffer);
-              tx.hasHeicPreview = true;
-              tx.responseBody = `[HEIC 高清图像: 大小 ${decompressedBuf.length} 字节 (已转码 JPEG 预览)]`;
-            } catch (convErr) {
-              console.warn('[ProxyServer] HEIC 转换失败:', convErr.message);
-              tx.hasHeicPreview = false;
-              tx.responseBody = `[HEIC 图片: 大小 ${decompressedBuf.length} 字节]`;
-            }
-          } else if (isImage) {
-            tx.isImage = true;
-            tx.bodyType = 'image';
-            tx.responseBody = `[图片内容: ${contentType || 'image'}, 大小: ${decompressedBuf.length} 字节]`;
-          } else if (isVideo) {
-            tx.isVideo = true;
-            tx.bodyType = 'video';
-            tx.responseBody = `[视频媒体: ${contentType || 'video'}, 大小: ${decompressedBuf.length} 字节]`;
-          } else if (isAudio) {
-            tx.isAudio = true;
-            tx.bodyType = 'audio';
-            tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${decompressedBuf.length} 字节]`;
+          if (isJsonSuccess) {
+            // 是合法的明文 JSON，直接格式化展示！
+            tx.responseBody = JSON.stringify(parsedJson, null, 2);
+            tx.isJson = true;
+            tx.bodyType = 'json';
+            tx.isProtobuf = false;
+            tx.responseIsAppEncrypted = false;
+            tx.isAppEncrypted = false;
+          } else if (isPrintableText(text) && !isUrlHeic && !contentType.startsWith('image/') && !contentType.startsWith('video/') && !contentType.startsWith('audio/')) {
+            // 是人类可读的纯文本 (HTML/JS/纯文本等)，直接展示！
+            tx.responseBody = text;
+            tx.bodyType = isHtml ? 'html' : (isJson ? 'json' : 'text');
+            if (isHtml) tx.isHtml = true;
+            tx.isProtobuf = false;
+            tx.responseIsAppEncrypted = false;
+            tx.isAppEncrypted = false;
           } else {
-            const text = decompressedBuf.toString('utf8');
-            let isJsonSuccess = false;
+            // 3. 只有非可读文本（是纯二进制）时，才按多媒体 / Protobuf / AES 密文分支走
+            const isHeic = isUrlHeic || isBufferHeic(decompressedBuf);
+            const isImage = isHeic || contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)(\?|$)/i.test(urlLower);
 
-            // 智能识别 JSON 格式
-            try {
-              const trimmed = text.trim();
-              if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-                const parsed = JSON.parse(trimmed);
-                tx.responseBody = JSON.stringify(parsed, null, 2);
-                tx.isJson = true;
-                tx.bodyType = 'json';
-                isJsonSuccess = true;
+            if (isHeic) {
+              tx.isHeic = true;
+              tx.isImage = true;
+              tx.bodyType = 'image';
+
+              try {
+                const jpegBuffer = await convertHeicToJpeg(decompressedBuf);
+                this.setPreviewBuffer(tx.id, jpegBuffer);
+                tx.hasHeicPreview = true;
+                tx.responseBody = `[HEIC 高清图像: 大小 ${decompressedBuf.length} 字节 (已转码 JPEG 预览)]`;
+              } catch (convErr) {
+                console.warn('[ProxyServer] HEIC 转换失败:', convErr.message);
+                tx.hasHeicPreview = false;
+                tx.responseBody = `[HEIC 图片: 大小 ${decompressedBuf.length} 字节]`;
               }
-            } catch (_) {}
-
-            if (!isJsonSuccess) {
-              if (isHtml) {
-                tx.isHtml = true;
-                tx.bodyType = 'html';
-                tx.responseBody = text;
-              } else if (isJson) {
+            } else if (isImage) {
+              tx.isImage = true;
+              tx.bodyType = 'image';
+              tx.responseBody = `[图片内容: ${contentType || 'image'}, 大小: ${decompressedBuf.length} 字节]`;
+            } else if (isVideo) {
+              tx.isVideo = true;
+              tx.bodyType = 'video';
+              tx.responseBody = `[视频媒体: ${contentType || 'video'}, 大小: ${decompressedBuf.length} 字节]`;
+            } else if (isAudio) {
+              tx.isAudio = true;
+              tx.bodyType = 'audio';
+              tx.responseBody = `[音频内容: ${contentType || 'audio'}, 大小: ${decompressedBuf.length} 字节]`;
+            } else {
+              // 尝试 Protobuf 反编译
+              const pbResult = decodeProtobuf(decompressedBuf);
+              if (pbResult.success && Object.keys(pbResult.data || {}).length > 0) {
+                tx.isProtobuf = true;
+                tx.bodyType = 'protobuf';
+                tx.responseBody = pbResult.json;
                 tx.isJson = true;
-                tx.bodyType = 'json';
-                tx.responseBody = text;
               } else {
-                // 尝试探测是否为未显式标注 Content-Type 的 Protobuf 二进制
-                const pbResult = decodeProtobuf(decompressedBuf);
-                if (pbResult.success && Object.keys(pbResult.data || {}).length > 0) {
-                  tx.isProtobuf = true;
-                  tx.isJson = true;
-                  tx.bodyType = 'protobuf';
-                  tx.responseBody = pbResult.json;
+                const cryptoInfo = isAppLayerEncryptedPayload(res.headers, decompressedBuf, isProtobuf);
+                if (cryptoInfo.encrypted) {
+                  tx.responseIsAppEncrypted = true;
+                  tx.isAppEncrypted = true;
+                  tx.responseBody = `🔒 [应用层加密响应: ${decompressedBuf.length} 字节 (${cryptoInfo.protocol})]\n` +
+                    `💡 机制说明: ${cryptoInfo.reason}。服务端使用与客户端协商的密钥进行了 AES 加密，返回的是密文流而非未加密数据。\n` +
+                    `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
+                    `0x${decompressedBuf.toString('hex')}`;
+                } else if (isProtobuf) {
+                  tx.responseBody = `[Protobuf 响应数据: ${decompressedBuf.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedBuf.toString('hex')}`;
                 } else {
-                  // 纯文本兜底
-                  tx.responseBody = text;
+                  // 纯二进制兜底展示
+                  tx.responseBody = `[二进制数据: ${decompressedBuf.length} 字节]\n0x${decompressedBuf.slice(0, 512).toString('hex')}`;
                   tx.bodyType = 'text';
                 }
               }
