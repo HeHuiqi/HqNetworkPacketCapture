@@ -95,6 +95,8 @@ export default {
              (ct.includes('application/xcp') && !jsonInfo.value.isValidJson);
     });
 
+    const showRawHex = ref(false); // 默认收起 Hex
+
     const isJs = computed(() => {
       const ct = contentType.value;
       const u = (props.request.url || '').toLowerCase();
@@ -107,8 +109,43 @@ export default {
 
     const isJson = computed(() => {
       const ct = contentType.value;
-      return ct.includes('json') || props.request.isJson || isProtobuf.value || jsonInfo.value.isValidJson;
+      return ct.includes('json') || props.request.isJson || jsonInfo.value.isValidJson;
     });
+
+    // 核心判定：响应体是否为非文本纯二进制流或未解密的 AES 密文
+    const isBinary = computed(() => {
+      if (isJson.value || isImage.value || isVideo.value || isAudio.value || isHtml.value) return false;
+      const req = props.request;
+      return !!req.responseIsBinary || 
+             req.bodyType === 'binary' ||
+             (req.responseBody && /^(\[Protobuf|\[二进制数据|🔒 \[应用层|0x[0-9a-fA-F]{30,})/.test(req.responseBody.trim())) ||
+             (isEncrypted.value && !jsonInfo.value.isValidJson);
+    });
+
+    const binarySize = computed(() => {
+      const req = props.request;
+      if (req.responseBinarySize) return req.responseBinarySize;
+      if (req.responseBinaryHex) return req.responseBinaryHex.length / 2;
+      const match = (req.responseBody || '').match(/(\d+)\s*字节/);
+      if (match) return parseInt(match[1], 10);
+      return contentLength.value || 0;
+    });
+
+    const binaryHex = computed(() => {
+      const req = props.request;
+      if (req.responseBinaryHex) return req.responseBinaryHex;
+      const match = (req.responseBody || '').match(/0x([0-9a-fA-F]+)/);
+      if (match) return match[1];
+      return '';
+    });
+
+    const copyHex = () => {
+      if (binaryHex.value) {
+        actions.copy('0x' + binaryHex.value, `已复制 ${formatBytes(binarySize.value)} Hex 密文数据`);
+      } else if (props.request.responseBody) {
+        actions.copy(props.request.responseBody, '响应数据已复制');
+      }
+    };
 
     const lines = computed(() => {
       if (activeSubTab.value === 'raw' || activeSubTab.value === 'html-source') {
@@ -133,6 +170,10 @@ export default {
     });
 
     const copyBodyText = () => {
+      if (isBinary.value) {
+        copyHex();
+        return;
+      }
       const text = (activeSubTab.value === 'json' && jsonInfo.value.formatted)
         ? jsonInfo.value.formatted
         : (props.request.responseBody || '');
@@ -256,6 +297,11 @@ export default {
       is304,
       isEncrypted,
       isGrpc,
+      isBinary,
+      binarySize,
+      binaryHex,
+      showRawHex,
+      copyHex,
       onImageLoad,
       onImageError,
       downloadBody,
@@ -277,8 +323,11 @@ export default {
           <span v-if="isGrpc && jsonInfo.isValidJson" class="badge-grpc" title="gRPC 帧解包 (拆解 5 字节帧头并反编译 Protobuf)">
             ⚡ gRPC (Protobuf)
           </span>
-          <span v-else-if="isEncrypted && !jsonInfo.isValidJson" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
-            🔒 AES 加密报文
+          <span v-else-if="isEncrypted && isBinary" class="badge-crypto-aes" title="检测到应用层二次加密(AES密文)，非裸Protobuf">
+            🔒 AES 密文 ({{ formatBytes(binarySize) }})
+          </span>
+          <span v-else-if="isBinary" class="badge-binary-tag" title="原始二进制数据流">
+            📦 二进制 ({{ formatBytes(binarySize) }})
           </span>
           <span v-else-if="isProtobuf && jsonInfo.isValidJson" style="margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-weight: normal;" title="基于 Wire Format 逆向反编译为 JSON 结构">
             📦 Protobuf 已解码
@@ -344,7 +393,7 @@ export default {
             :class="{ active: activeSubTab === 'json' }" 
             @click="activeSubTab = 'json'"
           >
-            {{ isEncrypted && !jsonInfo.isValidJson ? '🔒 AES 密文 (Hex)' : (isGrpc ? '⚡ gRPC (JSON)' : (isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text')))) }}
+            {{ isEncrypted && isBinary ? '🔒 AES 密文' : (isBinary ? '📦 二进制数据' : (isGrpc ? '⚡ gRPC (JSON)' : (isProtobuf ? '📦 Protobuf (JSON)' : (isJs ? '📜 JavaScript' : (isJson ? 'JSON Text' : 'Text'))))) }}
           </button>
 
           <button 
@@ -380,7 +429,7 @@ export default {
             💾 下载原响应
           </button>
           <button class="btn btn-default btn-xs" @click="copyBodyText()">
-            复制文本
+            {{ isBinary ? '复制 Hex' : '复制文本' }}
           </button>
         </div>
       </div>
@@ -490,19 +539,47 @@ export default {
           </div>
         </div>
 
-        <!-- 5. 代码行号高亮视图 (JSON / Raw / HTML 源码) -->
-        <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw' || activeSubTab === 'html-source'" class="editor-outer-wrapper">
-          <!-- 应用层加密特别说明条 -->
-          <div v-if="isEncrypted && !jsonInfo.isValidJson && activeSubTab === 'json'" class="crypto-alert-banner">
-            <span class="crypto-alert-icon">🔒</span>
-            <div class="crypto-alert-content">
-              <strong>检测到应用层二次加密（{{ request.responseHeaders?.['x-xc-proto-res'] ? '小川 XCP / AES 动态密文' : 'AES 分组密文' }}）</strong>
-              <div class="crypto-alert-desc">
-                该接口在 HTTPS (TLS) 基础上启用了客户端私有对称加密（基于 <code>x-xc-proto-req</code> 动态协商密钥）。抓包已完成传输层解密，但业务报文在手机端被二次加密。若需分析明文，建议使用 Frida / Xposed Hook 拦截 <code>NetCrypto.decodeAES</code>。
+        <!-- 5. 二进制数据 / 密文专属卡片展示 (不在显示区中平铺乱码 0x... 文本) -->
+        <div v-if="(activeSubTab === 'json' || activeSubTab === 'raw') && isBinary" class="binary-state-wrapper">
+          <div class="binary-state-card">
+            <div class="binary-state-icon">{{ isEncrypted ? '🔒' : '📦' }}</div>
+            <div class="binary-state-info">
+              <div class="binary-state-title">
+                {{ isEncrypted ? '应用层二次加密响应密文 (AES-CBC / XCP)' : (isProtobuf ? '未识别的 Protobuf 响应二进制' : '二进制原始响应数据流') }}
+              </div>
+              <div class="binary-state-tags">
+                <span class="binary-tag">📦 大小: {{ formatBytes(binarySize) }}</span>
+                <span class="binary-tag" v-if="contentType">类型: {{ contentType }}</span>
+                <span class="binary-tag" v-if="isEncrypted">协议: XCP 动态密钥</span>
+              </div>
+              <div class="binary-state-desc" v-if="isEncrypted">
+                该响应由服务端私有对称密钥加密后下发（密文流）。已完成标记，正文显示区<strong>不平铺展示无意义的乱码十六进制</strong>。若需逆向分析，可通过以下操作导出或复制。
+              </div>
+              <div class="binary-state-desc" v-else>
+                当前响应体为二进制原始数据流。已完成标记，正文显示区<strong>不平铺展示无意义的十六进制乱码</strong>。
+              </div>
+              <div class="binary-state-actions">
+                <button class="btn btn-default btn-xs" @click="copyHex" v-if="binaryHex">
+                  📋 复制十六进制 (Hex)
+                </button>
+                <button class="btn btn-default btn-xs" @click="downloadBody()" title="下载原始文件">
+                  📥 下载为文件 ({{ formatBytes(binarySize) }})
+                </button>
+                <button class="btn btn-default btn-xs" @click="showRawHex = !showRawHex" v-if="binaryHex">
+                  {{ showRawHex ? '🙈 收起 Hex' : '👁️ 按需展开 Hex' }}
+                </button>
+              </div>
+
+              <!-- 只有用户主动点击时才展开预览 -->
+              <div v-if="showRawHex" class="binary-hex-box">
+                <pre><code>0x{{ binaryHex }}</code></pre>
               </div>
             </div>
           </div>
+        </div>
 
+        <!-- 6. 正常代码行号高亮视图 (JSON / Raw / HTML 源码) -->
+        <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw' || activeSubTab === 'html-source'" class="editor-outer-wrapper">
           <div class="code-editor-view">
             <div class="code-line-numbers">
               <span v-for="n in lines.length" :key="n">{{ n }}</span>

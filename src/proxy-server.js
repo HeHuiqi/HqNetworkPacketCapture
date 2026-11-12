@@ -379,17 +379,23 @@ class ProxyServer extends EventEmitter {
               }
             } else {
               const cryptoInfo = isAppLayerEncryptedPayload(req.headers, decompressedReq, isReqProtobuf);
+              tx.requestIsBinary = true;
+              tx.requestBinarySize = decompressedReq.length;
+              tx.requestBinaryHex = decompressedReq.toString('hex');
+              tx.requestBody = ''; // 保持清空，不往正文区平铺大段 0x... 乱码十六进制
+
               if (cryptoInfo.encrypted) {
                 tx.requestIsAppEncrypted = true;
                 tx.isAppEncrypted = true;
-                tx.requestBody = `🔒 [应用层加密报文: ${decompressedReq.length} 字节 (${cryptoInfo.protocol})]\n` +
-                  `💡 机制说明: ${cryptoInfo.reason}。该接口在 TLS 之上启用了私有加密，当前内容为密文而非裸 Protobuf 明文。\n` +
-                  `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
-                  `0x${decompressedReq.toString('hex')}`;
+                tx.requestBinaryType = 'aes';
+                tx.requestBinaryProtocol = cryptoInfo.protocol;
+                tx.requestBinaryReason = cryptoInfo.reason;
               } else if (isReqProtobuf) {
-                tx.requestBody = `[Protobuf 报文: ${decompressedReq.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedReq.toString('hex')}`;
+                tx.requestIsProtobuf = true;
+                tx.requestBinaryType = 'protobuf';
+                tx.requestBinaryError = pbResult.error;
               } else {
-                tx.requestBody = `[二进制数据: ${decompressedReq.length} 字节]\n0x${decompressedReq.slice(0, 512).toString('hex')}`;
+                tx.requestBinaryType = 'raw';
               }
             }
           }
@@ -524,19 +530,24 @@ class ProxyServer extends EventEmitter {
                 }
               } else {
                 const cryptoInfo = isAppLayerEncryptedPayload(res.headers, decompressedBuf, isProtobuf);
+                tx.responseIsBinary = true;
+                tx.responseBinarySize = decompressedBuf.length;
+                tx.responseBinaryHex = decompressedBuf.toString('hex');
+                tx.responseBody = ''; // 保持清空，不往正文区平铺大段 0x... 乱码十六进制
+                tx.bodyType = 'binary';
+
                 if (cryptoInfo.encrypted) {
                   tx.responseIsAppEncrypted = true;
                   tx.isAppEncrypted = true;
-                  tx.responseBody = `🔒 [应用层加密响应: ${decompressedBuf.length} 字节 (${cryptoInfo.protocol})]\n` +
-                    `💡 机制说明: ${cryptoInfo.reason}。服务端使用与客户端协商的密钥进行了 AES 加密，返回的是密文流而非未加密数据。\n` +
-                    `💡 逆向建议: 可通过 Frida / Xposed 在手机端 Hook 客户端加解密方法 (如 NetCrypto.decodeAES) 截取明文 JSON。\n` +
-                    `0x${decompressedBuf.toString('hex')}`;
+                  tx.responseBinaryType = 'aes';
+                  tx.responseBinaryProtocol = cryptoInfo.protocol;
+                  tx.responseBinaryReason = cryptoInfo.reason;
                 } else if (isProtobuf) {
-                  tx.responseBody = `[Protobuf 响应数据: ${decompressedBuf.length} 字节 (自动解码未识别格式: ${pbResult.error})]\n0x${decompressedBuf.toString('hex')}`;
+                  tx.responseIsProtobuf = true;
+                  tx.responseBinaryType = 'protobuf';
+                  tx.responseBinaryError = pbResult.error;
                 } else {
-                  // 纯二进制兜底展示
-                  tx.responseBody = `[二进制数据: ${decompressedBuf.length} 字节]\n0x${decompressedBuf.slice(0, 512).toString('hex')}`;
-                  tx.bodyType = 'text';
+                  tx.responseBinaryType = 'raw';
                 }
               }
             }
