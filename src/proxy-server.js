@@ -1,3 +1,4 @@
+const tls = require('tls');
 const mockttp = require('mockttp');
 const fs = require('fs');
 const zlib = require('zlib');
@@ -7,6 +8,38 @@ const ruleManager = require('./rule-manager');
 const settingsManager = require('./settings-manager');
 const { isBufferHeic, convertHeicToJpeg } = require('./heic-converter');
 const { isProtobufContentType, decodeProtobuf } = require('./protobuf-parser');
+
+// Electron 内置 BoringSSL 不支持 OpenSSL 的 @SECLEVEL=0 及 ffdhe* 曲线；
+// 当 mockttp 开启 ignoreHostHttpsErrors: true 时会注入 @SECLEVEL=0，导致 BoringSSL 报 OPENSSL_internal:INVALID_COMMAND (500)。
+if (process.versions.electron && !tls.__hqBoringSslPatched) {
+  tls.__hqBoringSslPatched = true;
+  const sanitizeBoringSslTlsOptions = (options) => {
+    if (!options || typeof options !== 'object') return options;
+    let patched = options;
+    if (typeof options.ciphers === 'string' && options.ciphers.includes('@SECLEVEL=')) {
+      const cleaned = options.ciphers.replace(/(^|:)@SECLEVEL=\d+/g, '').replace(/^:/, '');
+      patched = { ...patched, ciphers: cleaned || undefined };
+    }
+    if (typeof options.ecdhCurve === 'string' && /ffdhe\d+/i.test(options.ecdhCurve)) {
+      const cleanedCurve = options.ecdhCurve.split(':').filter(c => !/^ffdhe\d+$/i.test(c)).join(':');
+      patched = { ...patched, ecdhCurve: cleanedCurve || undefined };
+    }
+    return patched;
+  };
+  const origCreateSecureContext = tls.createSecureContext;
+  tls.createSecureContext = function (options, ...rest) {
+    return origCreateSecureContext.call(this, sanitizeBoringSslTlsOptions(options), ...rest);
+  };
+  const origTlsConnect = tls.connect;
+  tls.connect = function (...args) {
+    if (args[0] && typeof args[0] === 'object') {
+      args[0] = sanitizeBoringSslTlsOptions(args[0]);
+    } else if (args[1] && typeof args[1] === 'object') {
+      args[1] = sanitizeBoringSslTlsOptions(args[1]);
+    }
+    return origTlsConnect.apply(this, args);
+  };
+}
 
 /**
  * 检验字符串是否为人类可读的合法纯文本（排除加密密文与乱码二进制）

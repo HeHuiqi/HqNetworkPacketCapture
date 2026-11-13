@@ -9,7 +9,7 @@ export const store = reactive({
   requests: [],
   selectedId: null,
   viewMode: 'structure', // 'structure' (按域名目录树) | 'sequence' (平铺列表)
-  theme: localStorage.getItem('hq_theme') || 'dark', // 'dark' | 'light'
+  theme: localStorage.getItem('hq_theme') || 'light', // 'dark' | 'light'
   isRecording: true,
   proxyPort: 8888,
   socksPort: 8889,
@@ -59,6 +59,7 @@ export const store = reactive({
   modals: {
     mock: false,
     rules: false,
+    settings: false,
     mobile: false,
     cert: false,
     upstream: false
@@ -209,7 +210,7 @@ export const actions = {
   },
 
   initTheme() {
-    const saved = localStorage.getItem('hq_theme') || 'dark';
+    const saved = localStorage.getItem('hq_theme') || 'light';
     store.theme = saved;
     document.documentElement.setAttribute('data-theme', saved);
   },

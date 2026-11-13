@@ -56,40 +56,15 @@ export default {
       </div>
 
       <div class="header-right">
-        <!-- 一键开关跨平台系统全局代理 (macOS / Windows / Linux) -->
+        <!-- 代理与证书设置入口 (合并系统代理、上游代理、安装根证书、手机配网与证书) -->
         <button 
-          v-if="store.systemProxy.supported"
-          class="btn btn-sm mac-proxy-btn" 
-          :class="store.systemProxy.enabled ? 'btn-mac-proxy-active' : 'btn-default'"
-          @click="actions.toggleSystemProxy" 
-          :title="store.systemProxy.enabled ? '点击关闭电脑系统全局代理' : '点击开启电脑系统全局代理 (抓取电脑所有软件和浏览器网络请求)'"
+          class="btn btn-sm settings-entry-btn" 
+          :class="(store.systemProxy.enabled || store.upstreamProxy.enabled) ? 'btn-settings-active' : 'btn-default'"
+          @click="store.modals.settings = true" 
+          title="打开代理与证书设置 (安装根证书、手机配网、系统代理、上游代理)"
         >
-          <span class="mac-proxy-indicator" :class="{ active: store.systemProxy.enabled }"></span>
-          <span>{{ store.systemProxy.enabled ? '🖥️ 系统代理: 已开启' : '🖥️ 系统代理: 已关闭' }}</span>
-        </button>
-
-        <!-- 上游外部代理设置 (VPN / 翻墙节点兼容) -->
-        <button 
-          class="btn btn-sm upstream-proxy-btn" 
-          :class="store.upstreamProxy.enabled ? 'btn-upstream-active' : 'btn-default'"
-          @click="store.modals.upstream = true" 
-          :title="store.upstreamProxy.enabled ? '上游外部代理已启用 (' + store.upstreamProxy.type + '://' + store.upstreamProxy.host + ':' + store.upstreamProxy.port + ')，点击修改' : '配置上游外部代理 (解决开启 VPN / Clash / 翻墙节点时请求超时失败)'"
-        >
-          <span class="upstream-indicator" :class="{ active: store.upstreamProxy.enabled }"></span>
-          <span>{{ store.upstreamProxy.enabled ? '🚀 上游代理: 已开启' : '🚀 上游代理' }}</span>
-        </button>
-
-        <!-- 电脑端根证书安装与信任菜单 -->
-        <button 
-          class="btn btn-default btn-sm" 
-          @click="store.modals.cert = true"
-          title="解决开启系统代理后浏览器提示证书无效或无法上网"
-        >
-          <span>🔐 安装根证书</span>
-        </button>
-
-        <button class="btn btn-default btn-sm" @click="actions.openMobileModal">
-          <span>📱 手机配网与证书</span>
+          <span v-if="store.systemProxy.enabled || store.upstreamProxy.enabled" class="mac-proxy-indicator active"></span>
+          <span>⚙️ 设置</span>
         </button>
 
         <button class="btn btn-purple btn-sm" @click="store.modals.rules = true">

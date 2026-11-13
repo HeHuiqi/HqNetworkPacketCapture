@@ -3187,3 +3187,160 @@ input:checked + .slider:before { transform: translateX(16px); }
   border-color: #cbd5e1;
 }
 
+/* ==========================================================================
+   SettingsModal 代理与证书设置弹窗样式
+   ========================================================================== */
+.btn-settings-active {
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--accent-green);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.btn-settings-active:hover {
+  background: rgba(16, 185, 129, 0.22);
+}
+
+.settings-modal-card {
+  width: 480px;
+  max-width: 94vw;
+}
+
+.settings-modal-body {
+  padding: 16px 20px;
+}
+
+.settings-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.16s ease;
+}
+
+.settings-action-btn:hover {
+  border-color: var(--accent-blue);
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+
+.settings-action-btn.is-active {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.settings-action-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-action-icon {
+  font-size: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.settings-action-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-action-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-action-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-status-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.settings-status-badge.status-on {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-green);
+}
+
+.settings-status-badge.status-off {
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+}
+
+.settings-action-arrow {
+  font-size: 20px;
+  color: var(--text-dim);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.settings-toggle-pill {
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.settings-toggle-pill.active {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.settings-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.settings-toggle-pill.active .settings-toggle-knob {
+  transform: translateX(16px);
+}
+
+

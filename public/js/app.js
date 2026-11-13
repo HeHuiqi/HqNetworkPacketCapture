@@ -12,6 +12,7 @@ import MobileModal from './components/MobileModal.js';
 import CertModal from './components/CertModal.js';
 import ConfirmModal from './components/ConfirmModal.js';
 import UpstreamProxyModal from './components/UpstreamProxyModal.js';
+import SettingsModal from './components/SettingsModal.js';
 
 const app = createApp({
   components: {
@@ -24,7 +25,8 @@ const app = createApp({
     MobileModal,
     CertModal,
     ConfirmModal,
-    UpstreamProxyModal
+    UpstreamProxyModal,
+    SettingsModal
   },
   setup() {
     const onGlobalClick = () => {
@@ -70,6 +72,9 @@ const app = createApp({
 
       <!-- Map Local 规则库列表管理弹窗 -->
       <rules-manager-modal></rules-manager-modal>
+
+      <!-- 代理与证书设置弹窗 (合并系统代理、上游代理、根证书、手机配网) -->
+      <settings-modal></settings-modal>
 
       <!-- 手机配网向导弹窗 -->
       <mobile-modal></mobile-modal>
