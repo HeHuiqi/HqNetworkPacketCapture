@@ -79,11 +79,15 @@ export default {
     const parseError = ref(null);
     const expandSignal = ref(null);
 
-    // 左侧代码栏子模式: 'fold' (代码折叠) | 'raw' (源码编辑)
-    const codeViewSubMode = ref('fold');
-
     // 存储左侧当前处于折叠状态的代码行号索引 (0-based)
     const collapsedLineIndices = ref(new Set());
+    const hasCollapsedLines = computed(() => collapsedLineIndices.value.size > 0);
+
+    // 折叠态下的单行就地编辑状态
+    const editingLineIdx = ref(null);
+    const editingLineText = ref('');
+    const inlineEditOriginalText = ref('');
+    const inlineInputRef = ref(null);
 
     // 双向同步锁
     const isUpdatingFromTree = ref(false);
@@ -195,6 +199,9 @@ export default {
 
     // 切换某一行代码的折叠/展开
     const toggleLineFold = (lineIdx) => {
+      if (editingLineIdx.value !== null) {
+        editingLineIdx.value = null;
+      }
       const newSet = new Set(collapsedLineIndices.value);
       if (newSet.has(lineIdx)) {
         newSet.delete(lineIdx);
@@ -202,6 +209,56 @@ export default {
         newSet.add(lineIdx);
       }
       collapsedLineIndices.value = newSet;
+    };
+
+    // 折叠态下点击未折叠行进入就地编辑
+    const startInlineEdit = (lineIdx) => {
+      if (props.readonly) return;
+      const lines = rawLines.value;
+      const currentText = lines[lineIdx] ?? '';
+      editingLineIdx.value = lineIdx;
+      editingLineText.value = currentText;
+      inlineEditOriginalText.value = currentText;
+      nextTick(() => {
+        const el = Array.isArray(inlineInputRef.value) ? inlineInputRef.value[0] : inlineInputRef.value;
+        if (el && typeof el.focus === 'function') {
+          el.focus();
+        }
+      });
+    };
+
+    const onInlineInput = (lineIdx, e) => {
+      const val = e.target.value;
+      editingLineText.value = val;
+      const lines = [...rawLines.value];
+      lines[lineIdx] = val;
+      const nextRaw = lines.join('\n');
+      rawText.value = nextRaw;
+      emit('update:modelValue', nextRaw);
+      emit('change', nextRaw);
+
+      if (isUpdatingFromTree.value) return;
+      isUpdatingFromText.value = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        tryParse(nextRaw);
+        isUpdatingFromText.value = false;
+      }, 150);
+    };
+
+    const finishInlineEdit = () => {
+      editingLineIdx.value = null;
+    };
+
+    const cancelInlineEdit = (lineIdx) => {
+      const lines = [...rawLines.value];
+      lines[lineIdx] = inlineEditOriginalText.value;
+      const nextRaw = lines.join('\n');
+      rawText.value = nextRaw;
+      emit('update:modelValue', nextRaw);
+      emit('change', nextRaw);
+      tryParse(nextRaw);
+      editingLineIdx.value = null;
     };
 
     // 计算有效性概要信息
@@ -307,6 +364,8 @@ export default {
       try {
         const obj = JSON.parse(rawText.value || '{}');
         const formatted = JSON.stringify(obj, null, 2);
+        collapsedLineIndices.value = new Set();
+        editingLineIdx.value = null;
         rawText.value = formatted;
         parsedData.value = obj;
         parseError.value = null;
@@ -323,6 +382,8 @@ export default {
       try {
         const obj = JSON.parse(rawText.value || '{}');
         const minified = JSON.stringify(obj);
+        collapsedLineIndices.value = new Set();
+        editingLineIdx.value = null;
         rawText.value = minified;
         parsedData.value = obj;
         parseError.value = null;
@@ -337,6 +398,8 @@ export default {
     // 清空内容
     const clearContent = () => {
       const emptyStr = '{}';
+      collapsedLineIndices.value = new Set();
+      editingLineIdx.value = null;
       rawText.value = emptyStr;
       parsedData.value = {};
       parseError.value = null;
@@ -431,6 +494,8 @@ export default {
         tpl = [];
       }
 
+      collapsedLineIndices.value = new Set();
+      editingLineIdx.value = null;
       const formatted = JSON.stringify(tpl, null, 2);
       rawText.value = formatted;
       parsedData.value = tpl;
@@ -446,9 +511,18 @@ export default {
       parsedData,
       parseError,
       expandSignal,
-      codeViewSubMode,
+      collapsedLineIndices,
+      hasCollapsedLines,
+      foldRanges,
       visibleLines,
       toggleLineFold,
+      editingLineIdx,
+      editingLineText,
+      inlineInputRef,
+      startInlineEdit,
+      onInlineInput,
+      finishInlineEdit,
+      cancelInlineEdit,
       textareaRef,
       highlightRef,
       lineNumbersRef,
@@ -551,28 +625,15 @@ export default {
           <div class="jte-pane-header">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span class="jte-pane-title">📝 JSON 源码 (Code View)</span>
-              
-              <!-- 折叠视图 vs 自由源码编辑 子模式切换 -->
-              <div class="jte-submode-tabs">
-                <button 
-                  type="button" 
-                  class="jte-submode-btn" 
-                  :class="{ active: codeViewSubMode === 'fold' }"
-                  @click="codeViewSubMode = 'fold'"
-                  title="代码折叠视图 (点击 ▶/▼ 展开折叠大对象)"
-                >
-                  🌲 代码折叠
-                </button>
-                <button 
-                  type="button" 
-                  class="jte-submode-btn" 
-                  :class="{ active: codeViewSubMode === 'raw' }"
-                  @click="codeViewSubMode = 'raw'"
-                  title="自由源码编辑 (支持随意打字、全选粘贴与编辑)"
-                >
-                  ✍️ 源码编辑
-                </button>
-              </div>
+              <button
+                v-if="hasCollapsedLines"
+                type="button"
+                class="jte-tool-btn btn-xs jte-folded-hint-btn"
+                @click="expandAll"
+                title="当前有折叠代码块，点击展开全部以恢复完整文本编辑"
+              >
+                ▶ 已折叠 {{ collapsedLineIndices.size }} 处 · 点击展开
+              </button>
             </div>
 
             <button 
@@ -586,16 +647,16 @@ export default {
           </div>
 
           <div class="jte-code-canvas">
-            <!-- 模式 A: 结构化代码折叠视图 (带折叠箭头 ▶/▼ 与折叠胶囊) -->
+            <!-- 折叠态视图：存在已折叠代码块时，展示带 ▶/▼ 折叠胶囊与单行就地编辑的折叠视图 -->
             <div 
-              v-if="codeViewSubMode === 'fold'" 
+              v-if="hasCollapsedLines" 
               class="jte-fold-code-view"
             >
               <div 
                 v-for="line in visibleLines" 
                 :key="line.lineIdx"
                 class="jte-fold-line"
-                :class="{ 'is-folded-parent': line.isFolded }"
+                :class="{ 'is-folded-parent': line.isFolded, 'is-editing-line': editingLineIdx === line.lineIdx }"
               >
                 <!-- 行号与折叠箭头 -->
                 <div class="jte-fold-gutter">
@@ -612,11 +673,28 @@ export default {
                   <span v-else class="jte-fold-btn-placeholder"></span>
                 </div>
 
-                <!-- 代码行内容与折叠徽章 (双击可快速切换到源码编辑) -->
+                <!-- 代码行内容：未折叠行点击可就地编辑，折叠行点击胶囊展开 -->
                 <div 
+                  v-if="editingLineIdx === line.lineIdx"
+                  class="jte-fold-content jte-fold-inline-edit-wrap"
+                >
+                  <input
+                    ref="inlineInputRef"
+                    type="text"
+                    class="jte-fold-inline-input"
+                    :value="editingLineText"
+                    @input="onInlineInput(line.lineIdx, $event)"
+                    @keydown.enter.prevent="finishInlineEdit"
+                    @keydown.esc.prevent="cancelInlineEdit(line.lineIdx)"
+                    @blur="finishInlineEdit"
+                    spellcheck="false"
+                  />
+                </div>
+                <div 
+                  v-else
                   class="jte-fold-content" 
-                  @dblclick="codeViewSubMode = 'raw'" 
-                  title="双击进入自由源码编辑模式"
+                  @click="!line.isFolded && startInlineEdit(line.lineIdx)"
+                  :title="line.isFolded ? '点击 ▶ 或折叠胶囊展开代码块' : (readonly ? '' : '点击就地编辑此行')"
                 >
                   <span class="jte-fold-prefix" v-html="line.prefixHtml"></span>
                   <span 
@@ -631,11 +709,20 @@ export default {
               </div>
             </div>
 
-            <!-- 模式 B: 自由源码编辑模式 (底层高亮 + 顶层可编辑 textarea) -->
+            <!-- 默认全量编辑态：行号 + 折叠箭头(▼) + 底层高亮 + 顶层可自由编辑 textarea -->
             <template v-else>
-              <!-- 行号列 -->
-              <div class="jte-line-numbers" ref="lineNumbersRef" aria-hidden="true">
-                <div v-for="n in lineCount" :key="n" class="jte-line-no">{{ n }}</div>
+              <!-- 行号与折叠槽 -->
+              <div class="jte-line-numbers" ref="lineNumbersRef">
+                <div v-for="n in lineCount" :key="n" class="jte-line-no">
+                  <span class="jte-fold-linenum">{{ n }}</span>
+                  <span
+                    v-if="foldRanges[n - 1]"
+                    class="jte-fold-btn"
+                    @click.stop="toggleLineFold(n - 1)"
+                    title="点击折叠此代码块"
+                  >▼</span>
+                  <span v-else class="jte-fold-btn-placeholder"></span>
+                </div>
               </div>
 
               <!-- 编辑与高亮舞台 -->
