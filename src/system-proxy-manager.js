@@ -104,9 +104,19 @@ class SystemProxyManager {
         const serverOut = execFileSync('reg', ['query', regKey, '/v', 'ProxyServer'], { encoding: 'utf8' });
         const match = serverOut.match(/ProxyServer\s+REG_SZ\s+(.+)/i);
         if (match) {
-          const parts = match[1].trim().split(':');
-          server = parts[0];
-          port = parseInt(parts[1] || '8888', 10);
+          let raw = match[1].trim();
+          if (raw.includes('=')) {
+            const httpPart = raw.split(';').find((p) => p.trim().toLowerCase().startsWith('http=')) || raw.split(';')[0];
+            raw = httpPart.replace(/^[^=]+=/, '').trim();
+          }
+          const colonIdx = raw.lastIndexOf(':');
+          if (colonIdx > 0) {
+            server = raw.slice(0, colonIdx).trim();
+            port = parseInt(raw.slice(colonIdx + 1).trim(), 10) || 8888;
+          } else {
+            server = raw;
+            port = 8888;
+          }
         }
       } catch (e) {}
 
@@ -244,8 +254,7 @@ class SystemProxyManager {
 
   toggle(port = 8888, host = '127.0.0.1') {
     const status = this.getStatus();
-    const isTargetMatched = status.enabled && Number(status.port) === Number(port);
-    if (isTargetMatched) {
+    if (status.enabled) {
       this.disable();
       return false;
     } else {

@@ -1,9 +1,13 @@
 import { ref, computed } from '/vendor/vue.esm-browser.js';
 import { formatJson, parseCookies, parseUrl, highlightJson, escapeHtml, formatBytes } from '../utils/formatters.js';
 import { actions } from '../store.js';
+import JsonFoldViewer from './JsonFoldViewer.js';
 
 export default {
   name: 'RequestViewer',
+  components: {
+    JsonFoldViewer
+  },
   props: {
     request: {
       type: Object,
@@ -289,7 +293,11 @@ export default {
           </div>
         </div>
 
-        <!-- 2. 正常 JSON / Raw 文本视图 (支持 JSON 语法着色) -->
+        <!-- 2. 正常 JSON (支持折叠与展开) / Raw 文本视图 -->
+        <div v-else-if="activeSubTab === 'json' && jsonInfo.isValidJson && jsonInfo.formatted" class="editor-outer-wrapper">
+          <json-fold-viewer :text="jsonInfo.formatted"></json-fold-viewer>
+        </div>
+
         <div v-else-if="activeSubTab === 'json' || activeSubTab === 'raw'" class="editor-outer-wrapper">
           <div class="code-editor-view">
             <div class="code-line-numbers">

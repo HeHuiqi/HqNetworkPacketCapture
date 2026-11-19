@@ -1,51 +1,7 @@
 import { ref, computed, watch, nextTick } from '/vendor/vue.esm-browser.js';
-import { escapeHtml, highlightJson } from '../utils/formatters.js';
+import { highlightJson } from '../utils/formatters.js';
+import { computeFoldRanges, computeVisibleFoldLines } from '../utils/jsonFold.js';
 import JsonTreeNode from './JsonTreeNode.js';
-
-// 计算代码折叠区间 (扫描多行括号对)
-function computeFoldRanges(lines) {
-  const stack = [];
-  const foldRanges = {};
-  lines.forEach((lineText, idx) => {
-    for (let i = 0; i < lineText.length; i++) {
-      const char = lineText[i];
-      if (char === '"') {
-        i++;
-        while (i < lineText.length && lineText[i] !== '"') {
-          if (lineText[i] === '\\') i++;
-          i++;
-        }
-      } else if (char === '{' || char === '[') {
-        stack.push({ char, lineIndex: idx });
-      } else if (char === '}' || char === ']') {
-        const matchChar = char === '}' ? '{' : '[';
-        if (stack.length > 0 && stack[stack.length - 1].char === matchChar) {
-          const open = stack.pop();
-          if (open.lineIndex !== idx) {
-            foldRanges[open.lineIndex] = {
-              endLine: idx,
-              type: open.char === '{' ? 'object' : 'array'
-            };
-          }
-        }
-      }
-    }
-  });
-  return foldRanges;
-}
-
-// 提取折叠行的前缀内容与徽章文本
-function getFoldPrefixAndBadge(lineText, endLineText, type) {
-  const bracket = type === 'object' ? '{' : '[';
-  const bracketPos = lineText.lastIndexOf(bracket);
-  const prefix = bracketPos >= 0 ? lineText.slice(0, bracketPos) : lineText;
-  const hasComma = (endLineText || '').trim().endsWith(',');
-  const closeBracket = type === 'object' ? '}' : ']';
-  return {
-    prefix,
-    badgeLabel: `${bracket} ... ${closeBracket}${hasComma ? ',' : ''}`
-  };
-}
 
 export default {
   name: 'JsonTreeEditor',
@@ -149,53 +105,9 @@ export default {
     });
 
     // 计算左侧代码折叠视图中的可见行列表
-    const visibleLines = computed(() => {
-      const lines = rawLines.value;
-      const ranges = foldRanges.value;
-      const collapsed = collapsedLineIndices.value;
-      const result = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        // 判断当前行是否被外层某个已折叠的代码块隐藏
-        let isHidden = false;
-        for (const startIdx of collapsed) {
-          const range = ranges[startIdx];
-          if (range && i > startIdx && i <= range.endLine) {
-            isHidden = true;
-            break;
-          }
-        }
-
-        if (!isHidden) {
-          const isFolded = collapsed.has(i);
-          const canFold = !!ranges[i];
-          let prefixHtml = '';
-          let badgeInfo = null;
-
-          if (isFolded && ranges[i]) {
-            const endText = lines[ranges[i].endLine] || '';
-            const foldData = getFoldPrefixAndBadge(lines[i], endText, ranges[i].type);
-            prefixHtml = highlightJson(foldData.prefix);
-            badgeInfo = {
-              label: foldData.badgeLabel,
-              count: `${ranges[i].endLine - i} 行已折叠`
-            };
-          } else {
-            prefixHtml = highlightJson(lines[i]);
-          }
-
-          result.push({
-            lineIdx: i,
-            canFold,
-            isFolded,
-            prefixHtml,
-            badgeInfo
-          });
-        }
-      }
-
-      return result;
-    });
+    const visibleLines = computed(() =>
+      computeVisibleFoldLines(rawLines.value, foldRanges.value, collapsedLineIndices.value)
+    );
 
     // 切换某一行代码的折叠/展开
     const toggleLineFold = (lineIdx) => {

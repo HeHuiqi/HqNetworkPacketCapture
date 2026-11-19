@@ -41,6 +41,41 @@ if (process.versions.electron && !tls.__hqBoringSslPatched) {
   };
 }
 
+// 捕获 mockttp 在客户端提前断开连接时产生的非致命流中断异常 (如 Error: Aborted / ECONNRESET / EPIPE)
+if (!process.__hqAbortGuardInstalled) {
+  process.__hqAbortGuardInstalled = true;
+  const isTransientNetworkError = (err) => {
+    if (!err) return false;
+    const msg = String(err.message || err);
+    const code = String(err.code || '');
+    return (
+      msg === 'Aborted' ||
+      msg === 'aborted' ||
+      msg.includes('socket hang up') ||
+      code === 'ECONNRESET' ||
+      code === 'ECONNABORTED' ||
+      code === 'EPIPE' ||
+      code === 'ERR_STREAM_PREMATURE_CLOSE'
+    );
+  };
+
+  process.on('unhandledRejection', (reason) => {
+    if (isTransientNetworkError(reason)) {
+      if (process.env.DEBUG) console.debug('[ProxyServer] 已忽略连接中断 Rejection:', reason?.message || reason);
+      return;
+    }
+    console.error('[ProxyServer] Unhandled Rejection:', reason);
+  });
+
+  process.on('uncaughtException', (err) => {
+    if (isTransientNetworkError(err)) {
+      if (process.env.DEBUG) console.debug('[ProxyServer] 已忽略连接中断 Exception:', err?.message || err);
+      return;
+    }
+    console.error('[ProxyServer] Uncaught Exception:', err);
+  });
+}
+
 /**
  * 检验字符串是否为人类可读的合法纯文本（排除加密密文与乱码二进制）
  */
