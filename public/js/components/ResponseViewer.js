@@ -64,6 +64,8 @@ export default {
     });
 
     const isHtml = computed(() => {
+      // 核心优先原则：如果内容已经成功解析为合法 JSON，绝不当作 HTML 预览页面处理
+      if (isJson.value) return false;
       const ct = contentType.value;
       const u = (props.request.url || '').toLowerCase();
       return props.request.isHtml || ct.includes('text/html') || /\.(html?|xhtml)(\?|$)/i.test(u);
@@ -207,7 +209,10 @@ export default {
       imgNaturalHeight.value = 0;
       imgLoadError.value = false;
 
-      if (isImage.value) {
+      // 核心：若内容是合法 JSON，不论 Content-Type 误写成 text/html 还是 text/plain，均优先选中 JSON 视图
+      if (isJson.value) {
+        activeSubTab.value = 'json';
+      } else if (isImage.value) {
         activeSubTab.value = 'image';
       } else if (isVideo.value) {
         activeSubTab.value = 'video';
@@ -215,8 +220,6 @@ export default {
         activeSubTab.value = 'audio';
       } else if (isHtml.value) {
         activeSubTab.value = 'html-preview';
-      } else if (isJson.value) {
-        activeSubTab.value = 'json';
       } else {
         activeSubTab.value = 'raw';
       }

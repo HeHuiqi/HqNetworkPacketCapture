@@ -9,6 +9,7 @@ export const store = reactive({
   requests: [],
   selectedId: null,
   viewMode: 'structure', // 'structure' (按域名目录树) | 'sequence' (平铺列表)
+  leftPanelWidth: parseInt(localStorage.getItem('hq_left_panel_width') || '330', 10), // 左侧栏宽度 (px)
   theme: localStorage.getItem('hq_theme') || 'light', // 'dark' | 'light'
   isRecording: true,
   proxyPort: 8888,
@@ -228,15 +229,26 @@ export const actions = {
 
   // 全部展开
   expandAllDomains() {
-    domainTreeData.value.forEach(d => {
+    (domainTreeData.value || []).forEach(d => {
       store.domainExpandedMap.set(d.domain, true);
     });
   },
 
   // 全部折叠
   collapseAllDomains() {
-    domainTreeData.value.forEach(d => {
+    (domainTreeData.value || []).forEach(d => {
       store.domainExpandedMap.set(d.domain, false);
+    });
+  },
+
+  // 一键切换全部展开/折叠
+  toggleAllDomains() {
+    const list = domainTreeData.value || [];
+    if (list.length === 0) return;
+    const isAllCollapsed = list.every(d => !d.expanded);
+    const targetState = isAllCollapsed; // 若当前全部折叠，则目标展开(true)；否则目标折叠(false)
+    list.forEach(d => {
+      store.domainExpandedMap.set(d.domain, targetState);
     });
   },
 

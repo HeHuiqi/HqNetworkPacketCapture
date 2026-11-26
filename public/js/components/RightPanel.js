@@ -13,16 +13,49 @@ export default {
   },
   setup() {
     // 上下分栏的高度百分比（默认请求占 48%）
-    const requestHeightPercent = ref(48);
+    const requestHeightPercent = ref(
+      parseFloat(localStorage.getItem('hq_request_height_percent') || '48')
+    );
     const isDragging = ref(false);
+    const showUrlModal = ref(false);
 
     const isProbeRequest = computed(() => {
       return isDirectProbe(selectedRequest.value);
     });
 
+    const parsedUrlInfo = computed(() => {
+      const url = selectedRequest.value?.url || '';
+      try {
+        const u = new URL(url);
+        const params = [];
+        u.searchParams.forEach((val, key) => {
+          params.push({ key, val });
+        });
+        return {
+          protocol: u.protocol.replace(':', ''),
+          origin: u.origin,
+          pathname: u.pathname,
+          search: u.search,
+          hash: u.hash,
+          params
+        };
+      } catch (e) {
+        return {
+          protocol: '',
+          origin: '',
+          pathname: url,
+          search: '',
+          hash: '',
+          params: []
+        };
+      }
+    });
+
     const onMouseDownResizer = (e) => {
       e.preventDefault();
       isDragging.value = true;
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
 
       const container = e.target.closest('.right-split-panel');
       if (!container) return;
@@ -39,6 +72,9 @@ export default {
 
       const onMouseUp = () => {
         isDragging.value = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('hq_request_height_percent', String(Math.round(requestHeightPercent.value)));
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
       };
@@ -58,6 +94,9 @@ export default {
       selectedRequest,
       actions,
       requestHeightPercent,
+      isDragging,
+      showUrlModal,
+      parsedUrlInfo,
       onMouseDownResizer,
       copyCurl,
       formatDuration,
@@ -72,7 +111,11 @@ export default {
           <span class="badge-method" :class="(selectedRequest.method || '').toLowerCase()">
             {{ selectedRequest.method }}
           </span>
-          <span class="titlebar-url" :title="selectedRequest.url">
+          <span 
+            class="titlebar-url" 
+            :title="'双击或点击右侧查看完整 URL:\\n' + selectedRequest.url"
+            @dblclick="showUrlModal = true"
+          >
             {{ selectedRequest.url }}
           </span>
           <span 
@@ -95,14 +138,17 @@ export default {
         </div>
 
         <div class="titlebar-actions">
+          <button class="btn btn-default btn-xs" @click="showUrlModal = true" title="查看完整 URL 与分解参数">
+            <span>🔍 查看 URL</span>
+          </button>
+          <button class="btn btn-default btn-xs" @click="actions.copy(selectedRequest.url, 'URL 已复制')" title="一键复制完整 URL 到剪贴板">
+            <span>📋 复制 URL</span>
+          </button>
           <button class="btn btn-purple btn-xs" @click="actions.openMockModal(selectedRequest)">
             <span>⚡ Map Local (Mock)</span>
           </button>
           <button class="btn btn-default btn-xs" @click="copyCurl">
             <span>💻 复制 cURL</span>
-          </button>
-          <button class="btn btn-default btn-xs" @click="actions.copy(selectedRequest.url, 'URL 已复制')">
-            <span>📋 复制 URL</span>
           </button>
         </div>
       </div>
@@ -122,13 +168,78 @@ export default {
       </div>
 
       <!-- 中间可拖拽调整高度的分隔条 (Resizer) -->
-      <div class="resizer-horizontal" @mousedown="onMouseDownResizer">
+      <div 
+        class="resizer-horizontal" 
+        :class="{ dragging: isDragging }"
+        @mousedown="onMouseDownResizer"
+        title="上下拖拽调整高度"
+      >
         <div class="resizer-handle"></div>
       </div>
 
       <!-- 下半部分：响应 Response -->
       <div class="split-bottom-wrapper" :style="{ height: (100 - requestHeightPercent) + '%' }">
         <response-viewer :request="selectedRequest"></response-viewer>
+      </div>
+
+      <!-- 完整 URL 详情预览弹窗 -->
+      <div v-if="showUrlModal" class="modal-overlay" @click.self="showUrlModal = false">
+        <div class="modal-card url-preview-modal-card">
+          <div class="modal-header">
+            <h3>🔗 完整 URL 详情与解析</h3>
+            <button class="modal-close" @click="showUrlModal = false">✕</button>
+          </div>
+
+          <div class="modal-body url-preview-modal-body">
+            <!-- 完整 URL 文本展示 (自动换行，支持全选与一键复制) -->
+            <div class="url-full-box">
+              <div class="url-full-header">
+                <span class="url-full-label">完整 URL (Full URL)</span>
+                <button 
+                  type="button" 
+                  class="btn btn-default btn-xs" 
+                  @click="actions.copy(selectedRequest.url, '完整 URL 已复制')"
+                >
+                  📋 复制完整 URL
+                </button>
+              </div>
+              <div class="url-full-text">{{ selectedRequest.url }}</div>
+            </div>
+
+            <!-- URL 结构分解 (Host, Path, Query Params) -->
+            <div class="url-parts-container">
+              <div class="url-part-item">
+                <span class="url-part-label">域名 (Origin):</span>
+                <span class="url-part-val">{{ parsedUrlInfo.origin || '(无)' }}</span>
+              </div>
+              <div class="url-part-item">
+                <span class="url-part-label">路径 (Path):</span>
+                <span class="url-part-val">{{ parsedUrlInfo.pathname || '/' }}</span>
+              </div>
+              <div v-if="parsedUrlInfo.params.length > 0" class="url-part-item url-params-block">
+                <span class="url-part-label">Query 查询参数 ({{ parsedUrlInfo.params.length }} 个):</span>
+                <table class="url-params-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 35%;">参数名 (Key)</th>
+                      <th>参数值 (Value)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="p in parsedUrlInfo.params" :key="p.key">
+                      <td class="param-key">{{ p.key }}</td>
+                      <td class="param-val">{{ p.val }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-default" @click="showUrlModal = false">关闭</button>
+          </div>
+        </div>
       </div>
     </div>
 

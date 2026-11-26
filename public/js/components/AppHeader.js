@@ -56,32 +56,27 @@ export default {
       </div>
 
       <div class="header-right">
-        <!-- 代理与证书设置入口 (合并系统代理、上游代理、安装根证书、手机配网与证书) -->
+        <!-- 业务高频操作：Map Local 规则 -->
+        <button class="btn btn-purple btn-sm" @click="store.modals.rules = true" title="查看与管理 Map Local (Mock) 规则">
+          <span>🎯 Map Local 规则 ({{ store.rules.length }})</span>
+        </button>
+
+        <!-- 业务高频操作：清空抓包记录 -->
+        <button class="btn btn-danger btn-sm" @click="actions.clearHistory" title="清空当前所有抓包列表">
+          <span>🧹 清空记录</span>
+        </button>
+
+        <div class="header-divider"></div>
+
+        <!-- 偏好与系统配置入口：设置 (包含证书、系统代理、上游代理、深浅色主题) -->
         <button 
           class="btn btn-sm settings-entry-btn" 
           :class="(store.systemProxy.enabled || store.upstreamProxy.enabled) ? 'btn-settings-active' : 'btn-default'"
           @click="store.modals.settings = true" 
-          title="打开代理与证书设置 (安装根证书、手机配网、系统代理、上游代理)"
+          title="设置 (根证书、手机配网、系统代理、上游代理、深浅主题切换)"
         >
           <span v-if="store.systemProxy.enabled || store.upstreamProxy.enabled" class="mac-proxy-indicator active"></span>
           <span>⚙️ 设置</span>
-        </button>
-
-        <button class="btn btn-purple btn-sm" @click="store.modals.rules = true">
-          <span>🎯 Map Local 规则 ({{ store.rules.length }})</span>
-        </button>
-
-        <button class="btn btn-danger btn-sm" @click="actions.clearHistory">
-          <span>🧹 清空记录</span>
-        </button>
-
-        <!-- 黑色/白色主题切换按钮 (放置在最右边) -->
-        <button 
-          class="btn btn-default btn-sm theme-btn" 
-          @click="actions.toggleTheme" 
-          :title="'切换为' + (store.theme === 'dark' ? '白色浅色主题' : '黑色深色主题')"
-        >
-          <span>{{ store.theme === 'dark' ? '🌙 深色' : '☀️ 浅色' }}</span>
         </button>
       </div>
     </header>

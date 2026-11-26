@@ -109,16 +109,20 @@ export function parseCookies(cookieHeader) {
 
 export function generateCurl(tx) {
   if (!tx) return '';
-  let cmd = `curl -X ${tx.method || 'GET'} "${tx.url}"`;
+  const escapeSingle = (str) => String(str ?? '').replace(/'/g, "'\\''");
+  
+  let cmd = `curl -X ${tx.method || 'GET'} '${escapeSingle(tx.url)}'`;
   if (tx.requestHeaders) {
     for (const [k, v] of Object.entries(tx.requestHeaders)) {
-      if (!['host', 'content-length'].includes(k.toLowerCase())) {
-        cmd += ` \\\n  -H "${k}: ${v}"`;
+      const lower = k.toLowerCase();
+      // 过滤自动协商与长度头，避免复制到终端重放时导致二进制报错或包体截断
+      if (!['host', 'content-length', 'accept-encoding'].includes(lower)) {
+        cmd += ` \\\n  -H '${k}: ${escapeSingle(v)}'`;
       }
     }
   }
-  if (tx.requestBody && ['POST', 'PUT', 'PATCH'].includes(tx.method)) {
-    cmd += ` \\\n  --data '${tx.requestBody.replace(/'/g, "'\\''")}'`;
+  if (tx.requestBody && ['POST', 'PUT', 'PATCH', 'DELETE'].includes((tx.method || '').toUpperCase())) {
+    cmd += ` \\\n  --data '${escapeSingle(tx.requestBody)}'`;
   }
   return cmd;
 }

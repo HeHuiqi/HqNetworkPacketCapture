@@ -19,12 +19,18 @@ export default {
       store.modals.upstream = true;
     };
 
+    const toggleTheme = () => {
+      actions.toggleTheme();
+    };
+
     return {
       store,
+      actions,
       openCertModal,
       openMobileModal,
       toggleSystemProxy,
-      openUpstreamModal
+      openUpstreamModal,
+      toggleTheme
     };
   },
   template: `
@@ -114,6 +120,29 @@ export default {
                   </div>
                   <div class="settings-action-desc">
                     {{ store.upstreamProxy.enabled ? (store.upstreamProxy.type + '://' + store.upstreamProxy.host + ':' + store.upstreamProxy.port) : '配置外部代理转发 (兼容 Clash / VPN 节点)' }}
+                  </div>
+                </div>
+              </div>
+              <span class="settings-action-arrow">›</span>
+            </button>
+
+            <!-- 5. 界面主题切换 -->
+            <button
+              type="button"
+              class="settings-action-btn"
+              @click="toggleTheme"
+            >
+              <div class="settings-action-left">
+                <span class="settings-action-icon">{{ store.theme === 'dark' ? '🌙' : '☀️' }}</span>
+                <div class="settings-action-info">
+                  <div class="settings-action-title">
+                    界面主题
+                    <span class="settings-status-badge status-on">
+                      {{ store.theme === 'dark' ? '深色主题' : '浅色主题' }}
+                    </span>
+                  </div>
+                  <div class="settings-action-desc">
+                    点击切换为{{ store.theme === 'dark' ? '浅色 (白色)' : '深色 (黑色)' }}主题风格
                   </div>
                 </div>
               </div>

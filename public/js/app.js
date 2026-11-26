@@ -1,4 +1,4 @@
-import { createApp, onMounted, onUnmounted } from '/vendor/vue.esm-browser.js';
+import { createApp, ref, computed, onMounted, onUnmounted } from '/vendor/vue.esm-browser.js';
 import { store, actions } from './store.js';
 
 // 导入独立子组件
@@ -29,10 +29,47 @@ const app = createApp({
     SettingsModal
   },
   setup() {
+    const isDraggingLeft = ref(false);
+
     const onGlobalClick = () => {
       if (store.contextMenu.visible) {
         actions.closeContextMenu();
       }
+    };
+
+    const onMouseDownLeftResizer = (e) => {
+      e.preventDefault();
+      isDraggingLeft.value = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const startX = e.clientX;
+      const startWidth = store.leftPanelWidth || 330;
+
+      const onMouseMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        let newWidth = startWidth + delta;
+        if (newWidth < 220) newWidth = 220;
+        if (newWidth > 700) newWidth = 700;
+        store.leftPanelWidth = newWidth;
+      };
+
+      const onMouseUp = () => {
+        isDraggingLeft.value = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('hq_left_panel_width', String(Math.round(store.leftPanelWidth)));
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    const onDoubleClickLeftResizer = () => {
+      store.leftPanelWidth = 330;
+      localStorage.setItem('hq_left_panel_width', '330');
     };
 
     onMounted(() => {
@@ -47,7 +84,9 @@ const app = createApp({
 
     return {
       store,
-      actions
+      actions,
+      isDraggingLeft,
+      onMouseDownLeftResizer
     };
   },
   template: `
@@ -59,6 +98,16 @@ const app = createApp({
       <div class="main-two-columns">
         <!-- 左栏：按域名建立目录的结构树或平铺列表 -->
         <left-panel></left-panel>
+
+        <!-- 垂直拖拽分割条 -->
+        <div 
+          class="resizer-vertical" 
+          :class="{ dragging: isDraggingLeft }"
+          @mousedown="onMouseDownLeftResizer"
+          title="左右拖拽调节宽度"
+        >
+          <div class="resizer-handle-v"></div>
+        </div>
 
         <!-- 右栏：上下分栏 (上边是请求 Request，下边是响应 Response) -->
         <right-panel></right-panel>
